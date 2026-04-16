@@ -1,0 +1,1499 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>HYSmartGmail — Bulk Email</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.0/package/dist/xlsx.full.min.js"></script>
+<style>
+/* ===== RESET & BASE ===== */
+*{margin:0;padding:0;box-sizing:border-box}
+html,body{height:100%;overflow:hidden;font-family:'Segoe UI',system-ui,sans-serif;background:#0d1117;color:#c9d1d9}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#0d1117}
+::-webkit-scrollbar-thumb{background:#30363d;border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:#484f58}
+input,textarea,select,button{font-family:inherit}
+
+/* ===== LOCK SCREEN ===== */
+#lockScreen{position:fixed;inset:0;z-index:9999;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%,#0f1c2e 0%,#060c14 100%)}
+.lock-wrap{text-align:center;max-width:380px;width:90%;animation:fadeIn .6s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(20px)}to{opacity:1;transform:translateY(0)}}
+.lock-icon{font-size:48px;margin-bottom:12px;cursor:pointer;user-select:none}
+.lock-title{font-size:1.3rem;font-weight:700;color:#f0f6fc;margin-bottom:4px}
+.lock-sub{font-size:.78rem;color:#8b949e;margin-bottom:20px}
+.lock-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:24px 22px;text-align:left}
+.lock-card label{display:block;font-size:.72rem;font-weight:600;color:#8b949e;margin-bottom:4px;text-transform:uppercase;letter-spacing:.06em}
+.lock-card input{width:100%;padding:9px 11px;font-size:.88rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;margin-bottom:14px;outline:none;transition:border .2s}
+.lock-card input:focus{border-color:#388bfd}
+.lock-card input::placeholder{color:#484f58}
+.lock-btn{width:100%;padding:10px;font-size:.85rem;font-weight:600;color:#fff;
+  background:linear-gradient(135deg,#1f6feb,#388bfd);border:none;border-radius:7px;cursor:pointer;transition:opacity .2s}
+.lock-btn:hover{opacity:.88}
+.lock-btn:active{opacity:.75}
+.lock-btn-demo{background:linear-gradient(135deg,#238636,#2ea043);margin-top:10px}
+#lockMsg{text-align:center;font-size:.78rem;margin-top:10px;min-height:20px}
+.lock-msg-err{color:#f85149}.lock-msg-ok{color:#3fb950}
+.lock-contact{margin-top:18px;font-size:.7rem;color:#484f58}
+.lock-contact a{color:#58a6ff;text-decoration:none}
+
+/* ===== SIGN-IN SCREEN ===== */
+#signInScreen{position:fixed;inset:0;z-index:9998;display:none;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at 50% 40%,#0f1c2e 0%,#060c14 100%)}
+.signin-wrap{text-align:center;max-width:420px;width:90%;animation:fadeIn .5s ease}
+.signin-card{background:#161b22;border:1px solid #30363d;border-radius:10px;padding:28px 24px;text-align:left}
+.signin-title{font-size:1.1rem;font-weight:700;color:#f0f6fc;margin-bottom:6px;text-align:center}
+.signin-sub{font-size:.76rem;color:#8b949e;margin-bottom:18px;text-align:center}
+.signin-section{font-size:.67rem;color:#58a6ff;text-transform:uppercase;letter-spacing:.1em;margin:14px 0 6px;font-weight:600}
+.signin-btn{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;padding:11px;
+  font-size:.88rem;font-weight:600;color:#fff;background:linear-gradient(135deg,#1f6feb,#388bfd);
+  border:none;border-radius:7px;cursor:pointer;transition:opacity .2s;margin-top:12px}
+.signin-btn:hover{opacity:.88}
+.signin-btn svg{width:18px;height:18px}
+.signin-hint{font-size:.68rem;color:#484f58;margin-top:8px;text-align:center}
+.config-row{display:flex;gap:6px;align-items:center;margin-bottom:8px}
+.config-row input{flex:1;padding:8px 10px;font-size:.8rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;outline:none}
+.config-row input:focus{border-color:#388bfd}
+.config-save{padding:8px 14px;font-size:.78rem;font-weight:600;color:#fff;
+  background:#238636;border:none;border-radius:6px;cursor:pointer}
+.signout-lock{position:absolute;top:14px;right:16px;font-size:.72rem;color:#8b949e;cursor:pointer;
+  background:none;border:1px solid #30363d;border-radius:5px;padding:4px 10px}
+.signout-lock:hover{color:#f85149;border-color:#f85149}
+#signInMsg{text-align:center;font-size:.78rem;margin-top:10px;min-height:20px}
+
+/* ===== MAIN APP ===== */
+#app{display:none;height:100vh;flex-direction:column;overflow:hidden}
+
+/* Header */
+.app-header{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:48px;min-height:48px;
+  background:linear-gradient(135deg,#161b22,#1f2937);border-bottom:1px solid #30363d}
+.header-left{display:flex;align-items:center;gap:12px}
+.app-logo{font-size:.95rem;font-weight:700;color:#f0f6fc;white-space:nowrap}
+.app-logo span{color:#3fb950}
+.user-email{font-size:.72rem;color:#58a6ff;background:#0d1117;border:1px solid #21262d;
+  border-radius:12px;padding:2px 10px}
+.header-right{display:flex;align-items:center;gap:6px}
+.hbtn{padding:5px 12px;font-size:.72rem;font-weight:600;border:none;border-radius:5px;cursor:pointer;
+  transition:opacity .15s;white-space:nowrap}
+.hbtn:hover{opacity:.85}
+.hbtn-compose{background:#fff;color:#1f6feb}
+.hbtn-bulk{background:#238636;color:#fff}
+.hbtn-refresh{background:#1f2937;color:#c9d1d9;border:1px solid #30363d}
+.hbtn-sig{background:#1f2937;color:#c9d1d9;border:1px solid #30363d}
+.hbtn-signout{background:transparent;color:#f85149;border:1px solid #f8514933}
+.hbtn-signout:hover{background:#f8514922}
+
+/* Content Grid */
+.app-content{display:grid;grid-template-columns:320px 1fr;flex:1;overflow:hidden}
+
+/* Inbox Sidebar */
+.inbox-panel{display:flex;flex-direction:column;border-right:1px solid #30363d;overflow:hidden}
+.inbox-header{padding:10px 14px;display:flex;align-items:center;justify-content:space-between;
+  border-bottom:1px solid #21262d;min-height:38px}
+.inbox-title{font-size:.72rem;font-weight:700;color:#58a6ff;text-transform:uppercase;letter-spacing:.1em}
+.inbox-count{font-size:.67rem;color:#8b949e}
+.inbox-search{padding:6px 12px;border-bottom:1px solid #21262d}
+.inbox-search input{width:100%;padding:6px 10px;font-size:.76rem;background:#0d1117;color:#c9d1d9;
+  border:1px solid #30363d;border-radius:5px;outline:none}
+.inbox-search input:focus{border-color:#388bfd}
+.inbox-list{flex:1;overflow-y:auto;overflow-x:hidden}
+
+/* Email Card */
+.email-card{display:flex;gap:10px;padding:10px 14px;border-bottom:1px solid #21262d;cursor:pointer;transition:background .15s}
+.email-card:hover{background:#161b22}
+.email-card.active{background:#1f6feb22;border-left:2px solid #388bfd}
+.email-card.unread .ec-sender{font-weight:700;color:#f0f6fc}
+.email-card.unread .ec-subject{color:#f0f6fc}
+.ec-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:.78rem;font-weight:700;color:#fff;flex-shrink:0}
+.ec-body{flex:1;overflow:hidden}
+.ec-top{display:flex;justify-content:space-between;align-items:baseline;gap:6px}
+.ec-sender{font-size:.76rem;color:#c9d1d9;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ec-date{font-size:.62rem;color:#8b949e;white-space:nowrap;flex-shrink:0}
+.ec-subject{font-size:.72rem;color:#8b949e;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+.ec-snippet{font-size:.66rem;color:#484f58;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:1px}
+
+/* Reader Panel */
+.reader-panel{display:flex;flex-direction:column;overflow:hidden}
+.reader-empty{flex:1;display:flex;align-items:center;justify-content:center;color:#484f58;font-size:.88rem}
+.reader-subject{padding:14px 20px 10px;font-size:1.05rem;font-weight:700;color:#f0f6fc;
+  border-bottom:1px solid #21262d;word-wrap:break-word}
+.reader-meta{padding:10px 20px;display:flex;align-items:center;gap:12px;border-bottom:1px solid #21262d}
+.rm-avatar{width:38px;height:38px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+  font-size:.85rem;font-weight:700;color:#fff;flex-shrink:0}
+.rm-info{flex:1}
+.rm-sender{font-size:.82rem;font-weight:600;color:#f0f6fc}
+.rm-email{font-size:.68rem;color:#8b949e}
+.rm-to{font-size:.66rem;color:#484f58;margin-top:1px}
+.rm-date{font-size:.66rem;color:#8b949e;text-align:right}
+.reader-actions{padding:8px 20px;display:flex;gap:6px;border-bottom:1px solid #21262d}
+.ra-btn{padding:5px 14px;font-size:.72rem;font-weight:600;border:1px solid #30363d;border-radius:5px;
+  background:#161b22;color:#c9d1d9;cursor:pointer;transition:all .15s}
+.ra-btn:hover{border-color:#58a6ff;color:#58a6ff}
+.reader-attachments{padding:8px 20px;display:flex;flex-wrap:wrap;gap:6px;border-bottom:1px solid #21262d;display:none}
+.att-chip{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;font-size:.68rem;
+  background:#161b22;border:1px solid #30363d;border-radius:5px;color:#c9d1d9;cursor:pointer}
+.att-chip:hover{border-color:#58a6ff}
+.att-ext{padding:1px 5px;border-radius:3px;font-size:.6rem;font-weight:700;color:#fff}
+.reader-body{flex:1;padding:16px 20px;overflow-y:auto;font-size:.82rem;line-height:1.6;white-space:pre-wrap;word-wrap:break-word}
+
+/* Status Bar */
+.status-bar{height:26px;min-height:26px;padding:0 14px;display:flex;align-items:center;
+  background:#161b22;border-top:1px solid #30363d;font-size:.66rem;color:#8b949e}
+
+/* ===== MODAL SHARED ===== */
+.modal-overlay{position:fixed;inset:0;z-index:8000;background:#000000aa;display:none;
+  align-items:center;justify-content:center;animation:fadeIn .2s ease}
+.modal-overlay.show{display:flex}
+.modal{background:#161b22;border:1px solid #30363d;border-radius:10px;width:90%;max-height:90vh;
+  display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .25s ease}
+.modal-header{display:flex;align-items:center;justify-content:space-between;padding:12px 18px;
+  border-bottom:1px solid #30363d;min-height:44px}
+.modal-header h3{font-size:.88rem;font-weight:700;color:#f0f6fc}
+.modal-close{background:none;border:none;color:#8b949e;font-size:1.1rem;cursor:pointer;padding:2px 6px;
+  border-radius:4px}
+.modal-close:hover{color:#f85149;background:#f8514922}
+.modal-body{flex:1;padding:16px 18px;overflow-y:auto}
+.modal-footer{padding:10px 18px;border-top:1px solid #30363d;display:flex;align-items:center;justify-content:flex-end;gap:8px}
+
+/* Form Elements */
+.form-label{display:block;font-size:.67rem;font-weight:600;color:#58a6ff;text-transform:uppercase;
+  letter-spacing:.1em;margin-bottom:4px}
+.form-input{width:100%;padding:8px 11px;font-size:.82rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;outline:none;transition:border .2s}
+.form-input:focus{border-color:#388bfd}
+.form-input::placeholder{color:#484f58}
+.form-textarea{width:100%;padding:8px 11px;font-size:.82rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;outline:none;resize:vertical;font-family:inherit;
+  line-height:1.5;transition:border .2s}
+.form-textarea:focus{border-color:#388bfd}
+.form-select{padding:8px 11px;font-size:.82rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;outline:none}
+.form-row{margin-bottom:12px}
+.form-hint{font-size:.66rem;color:#484f58;margin-top:3px}
+.btn{padding:7px 16px;font-size:.78rem;font-weight:600;border:none;border-radius:6px;cursor:pointer;transition:opacity .15s}
+.btn:hover{opacity:.85}
+.btn-primary{background:linear-gradient(135deg,#1f6feb,#388bfd);color:#fff}
+.btn-green{background:linear-gradient(135deg,#238636,#2ea043);color:#fff}
+.btn-red{background:#da363322;color:#f85149;border:1px solid #f8514944}
+.btn-gray{background:#21262d;color:#c9d1d9;border:1px solid #30363d}
+.btn-disabled{opacity:.4;pointer-events:none}
+
+/* ===== COMPOSE MODAL ===== */
+.modal-compose{max-width:680px}
+.compose-header-bar{background:linear-gradient(135deg,#1f6feb,#388bfd);padding:12px 18px;
+  border-bottom:none;border-radius:10px 10px 0 0}
+.compose-header-bar h3{color:#fff}
+.compose-header-bar .modal-close{color:#ffffffaa}
+.compose-header-bar .modal-close:hover{color:#fff;background:#ffffff22}
+
+/* ===== BULK EMAIL MODAL ===== */
+.modal-bulk{max-width:960px;max-height:92vh}
+.bulk-header-bar{background:linear-gradient(135deg,#238636,#2ea043)}
+.bulk-header-bar h3{color:#fff}
+.bulk-header-bar .modal-close{color:#ffffffaa}
+.bulk-header-bar .modal-close:hover{color:#fff;background:#ffffff22}
+.step-title{font-size:.78rem;font-weight:700;color:#f0f6fc;margin:14px 0 8px;display:flex;align-items:center;gap:8px}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;
+  background:#388bfd;color:#fff;border-radius:50%;font-size:.68rem;font-weight:700}
+.step-num-green{background:#238636}
+.file-row{display:flex;gap:8px;align-items:center;margin-bottom:8px}
+.file-label{flex:1;font-size:.76rem;color:#8b949e;padding:7px 10px;background:#0d1117;
+  border:1px solid #30363d;border-radius:6px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.file-loaded{color:#3fb950}
+
+/* Data preview table */
+.preview-table-wrap{overflow-x:auto;margin:8px 0;border:1px solid #30363d;border-radius:6px}
+.preview-table{width:100%;border-collapse:collapse;font-size:.7rem}
+.preview-table th{background:#21262d;color:#58a6ff;font-weight:600;padding:5px 8px;
+  text-align:left;white-space:nowrap;border-bottom:1px solid #30363d;position:sticky;top:0}
+.preview-table td{padding:4px 8px;border-bottom:1px solid #21262d;color:#c9d1d9;white-space:nowrap}
+.preview-table tr:hover td{background:#0d1117}
+
+/* Column settings */
+.col-settings{display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;margin:8px 0;
+  padding:10px;background:#0d111799;border:1px solid #21262d;border-radius:6px}
+.col-label{font-size:.68rem;color:#8b949e;margin-bottom:3px}
+
+/* Placeholder chips */
+.chip-bar{display:flex;flex-wrap:wrap;gap:4px;margin:6px 0}
+.chip{padding:3px 9px;font-size:.66rem;font-weight:600;background:#0d1117;color:#3fb950;
+  border:1px solid #3fb95044;border-radius:12px;cursor:pointer;transition:all .15s;font-family:'Courier New',monospace}
+.chip:hover{background:#3fb95022;border-color:#3fb950}
+.chip-currency{color:#f0883e;border-color:#f0883e44}
+.chip-currency:hover{background:#f0883e22;border-color:#f0883e}
+
+/* Radio group */
+.radio-group{display:flex;gap:12px;margin:6px 0}
+.radio-group label{display:flex;align-items:center;gap:5px;font-size:.76rem;color:#c9d1d9;cursor:pointer}
+.radio-group input[type=radio]{accent-color:#388bfd}
+
+/* Template buttons */
+.template-btns{display:flex;gap:6px;margin:8px 0}
+
+/* Progress bar */
+.progress-wrap{height:4px;background:#21262d;border-radius:2px;margin:8px 0;overflow:hidden}
+.progress-bar{height:100%;background:#388bfd;border-radius:2px;transition:width .3s ease;width:0}
+.progress-bar.done{background:#3fb950}
+.progress-bar.error{background:#f85149}
+.progress-label{font-size:.72rem;color:#8b949e}
+
+/* ===== SIGNATURE MODAL ===== */
+.modal-sig{max-width:560px}
+
+/* ===== SETUP MODAL ===== */
+.modal-setup{max-width:620px}
+.setup-step{padding:10px 0;border-bottom:1px solid #21262d}
+.setup-step:last-child{border-bottom:none}
+.setup-step h4{font-size:.78rem;color:#f0f6fc;margin-bottom:4px}
+.setup-step p{font-size:.72rem;color:#8b949e;line-height:1.5}
+.setup-step a{color:#58a6ff;text-decoration:none}
+.setup-step a:hover{text-decoration:underline}
+.setup-step code{background:#0d1117;padding:1px 6px;border-radius:3px;font-size:.7rem;color:#f0883e}
+
+/* ===== RESPONSIVE ===== */
+@media(max-width:700px){
+  .app-content{grid-template-columns:1fr;position:relative}
+  .inbox-panel{display:flex}
+  .reader-panel{position:absolute;inset:0;background:#0d1117;display:none;z-index:100}
+  .reader-panel.show-mobile{display:flex}
+  .mobile-back{display:block!important}
+  .header-right .hbtn span.hide-mobile{display:none}
+  .app-header{padding:0 10px}
+  .user-email{display:none}
+}
+.mobile-back{display:none;padding:5px 10px;font-size:.72rem;font-weight:600;background:#21262d;
+  color:#c9d1d9;border:1px solid #30363d;border-radius:5px;cursor:pointer;margin-right:8px}
+
+/* ===== AVATAR COLORS ===== */
+.av0{background:#d93025}.av1{background:#1a73e8}.av2{background:#34a853}.av3{background:#f9ab00}
+.av4{background:#e8710a}.av5{background:#9334e6}.av6{background:#00897b}.av7{background:#c2185b}
+
+/* ===== EXTENSION COLORS ===== */
+.ext-pdf{background:#d93025}.ext-doc{background:#1a73e8}.ext-xls{background:#34a853}
+.ext-ppt{background:#f9ab00}.ext-zip{background:#8b949e}.ext-img{background:#9334e6}
+.ext-txt{background:#484f58}.ext-other{background:#30363d}
+
+/* ===== ADMIN PANEL ===== */
+#adminPanel{position:fixed;inset:0;z-index:10000;background:#000000cc;display:none;
+  align-items:center;justify-content:center}
+.admin-card{background:#161b22;border:1px solid #f0883e;border-radius:10px;width:90%;max-width:540px;
+  max-height:85vh;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .25s ease}
+.admin-title{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;
+  font-size:.9rem;font-weight:700;color:#f0883e;border-bottom:1px solid #30363d}
+.admin-close{background:none;border:none;color:#8b949e;font-size:1.1rem;cursor:pointer;padding:2px 6px;border-radius:4px}
+.admin-close:hover{color:#f85149;background:#f8514922}
+.admin-tabs{display:flex;border-bottom:1px solid #30363d}
+.admin-tab{flex:1;padding:9px;font-size:.74rem;font-weight:600;background:transparent;color:#8b949e;
+  border:none;cursor:pointer;border-bottom:2px solid transparent;transition:all .15s}
+.admin-tab:hover{color:#c9d1d9}
+.admin-tab.on{color:#f0883e;border-bottom-color:#f0883e}
+.admin-pane{padding:16px 18px;overflow-y:auto;flex:1}
+.admin-pane.hidden{display:none}
+.admin-fg{margin-bottom:10px}
+.admin-fg label{display:block;font-size:.68rem;font-weight:600;color:#8b949e;margin-bottom:3px}
+.admin-fg input{width:100%;padding:8px 10px;font-size:.82rem;background:#0d1117;color:#f0f6fc;
+  border:1px solid #30363d;border-radius:6px;outline:none}
+.admin-fg input:focus{border-color:#f0883e}
+.admin-result{margin-top:10px;padding:10px;background:#0d1117;border:1px solid #3fb95044;border-radius:6px;
+  font-family:'Courier New',monospace;font-size:.82rem;color:#3fb950;word-break:break-all}
+.admin-info-row{display:flex;justify-content:space-between;padding:6px 0;font-size:.76rem;
+  border-bottom:1px solid #21262d}
+.admin-info-row .ai-label{color:#8b949e}
+.admin-info-row .ai-value{color:#f0f6fc;font-family:'Courier New',monospace}
+
+/* ===== PRINT ===== */
+@media print{
+  #lockScreen,#signInScreen,.app-header,.status-bar,.modal-overlay{display:none!important}
+  .app-content{display:block}
+  .inbox-panel{display:none}
+  body{background:#fff;color:#000}
+  .reader-panel{overflow:visible}
+  .reader-body{color:#000}
+}
+</style>
+</head>
+<body>
+
+<!-- ==================== LOCK SCREEN ==================== -->
+<div id="lockScreen">
+  <div class="lock-wrap">
+    <div class="lock-icon" id="lockIconClick" title="Click 5x for admin">&#128272;</div>
+    <div class="lock-title">HYSmartGmail &mdash; Bulk Email</div>
+    <div class="lock-sub">Professional Gmail automation tool</div>
+    <div class="lock-card">
+      <label>Passcode</label>
+      <input type="password" id="passcodeInput" placeholder="Enter passcode" maxlength="10"
+        onkeydown="if(event.key==='Enter')tryUnlock()">
+      <button class="lock-btn" onclick="tryUnlock()">&#128275; Unlock</button>
+      <div id="lockMsg"></div>
+    </div>
+    <div class="lock-contact">
+      Need access? <a href="mailto:hovanphapbk@gmail.com">hovanphapbk@gmail.com</a> | v1.0
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SIGN-IN SCREEN ==================== -->
+<div id="signInScreen">
+  <button class="signout-lock" onclick="lockApp()">&#128274; Lock</button>
+  <div class="signin-wrap">
+    <div style="font-size:42px;margin-bottom:10px">&#9993;</div>
+    <div class="signin-title">Sign in to Gmail</div>
+    <div class="signin-sub">Connect your Google account to access inbox and send emails</div>
+    <div class="signin-card">
+      <div class="signin-section">Google OAuth Client ID</div>
+      <div class="config-row">
+        <input type="text" id="clientIdInput" placeholder="paste your Client ID here"
+          value="" spellcheck="false">
+        <button class="config-save" onclick="saveClientId()">Save</button>
+      </div>
+      <div class="form-hint" style="margin-bottom:10px">
+        No Client ID? <a href="#" onclick="openSetupModal();return false" style="color:#58a6ff">Setup Guide</a>
+      </div>
+      <button class="signin-btn" id="btnGoogleSignIn" onclick="doGoogleSignIn()">
+        <svg viewBox="0 0 24 24" fill="#fff"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 01-2.2 3.32v2.77h3.57c2.08-1.92 3.27-4.74 3.27-8.1z"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/></svg>
+        Sign in with Google
+      </button>
+      <div id="signInMsg"></div>
+      <div class="signin-hint">Your credentials stay in your browser. Nothing is stored on any server.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== MAIN APP ==================== -->
+<div id="app">
+  <!-- Header -->
+  <div class="app-header">
+    <div class="header-left">
+      <button class="mobile-back" onclick="closeMobileReader()">&#8592; Back</button>
+      <div class="app-logo" id="hdrIcon" title="Click 5x for admin" style="cursor:default">HYSmart<span>Gmail</span></div>
+      <div class="user-email" id="userEmail"></div>
+    </div>
+    <div class="header-right">
+      <button class="hbtn hbtn-compose" onclick="openCompose()">&#9998; <span class="hide-mobile">Compose</span></button>
+      <button class="hbtn hbtn-bulk" onclick="openBulkEmail()">&#128202; <span class="hide-mobile">Bulk Email</span></button>
+      <button class="hbtn hbtn-sig" onclick="openSignature()">&#9999;&#65039; <span class="hide-mobile">Signature</span></button>
+      <button class="hbtn hbtn-refresh" onclick="loadInbox()">&#8635;</button>
+      <button class="hbtn hbtn-signout" onclick="signOut()">Sign Out</button>
+    </div>
+  </div>
+
+  <!-- Content -->
+  <div class="app-content">
+    <!-- Inbox -->
+    <div class="inbox-panel">
+      <div class="inbox-header">
+        <span class="inbox-title">Inbox</span>
+        <span class="inbox-count" id="inboxCount"></span>
+      </div>
+      <div class="inbox-search">
+        <input type="text" id="searchInput" placeholder="Search emails..." oninput="filterInbox()">
+      </div>
+      <div class="inbox-list" id="inboxList"></div>
+    </div>
+
+    <!-- Reader -->
+    <div class="reader-panel" id="readerPanel">
+      <div class="reader-empty" id="readerEmpty">Select an email to read</div>
+      <div id="readerContent" style="display:none;flex-direction:column;flex:1;overflow:hidden">
+        <div class="reader-subject" id="readerSubject"></div>
+        <div class="reader-meta">
+          <div class="rm-avatar" id="readerAvatar"></div>
+          <div class="rm-info">
+            <div class="rm-sender" id="readerSender"></div>
+            <div class="rm-email" id="readerSenderEmail"></div>
+            <div class="rm-to" id="readerTo"></div>
+          </div>
+          <div class="rm-date" id="readerDate"></div>
+        </div>
+        <div class="reader-actions">
+          <button class="ra-btn" onclick="replyToEmail()">&#8617; Reply</button>
+          <button class="ra-btn" onclick="forwardEmail()">&#8618; Forward</button>
+        </div>
+        <div class="reader-attachments" id="readerAttachments"></div>
+        <div class="reader-body" id="readerBody"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Status Bar -->
+  <div class="status-bar" id="statusBar">Ready</div>
+</div>
+
+<!-- ==================== COMPOSE MODAL ==================== -->
+<div class="modal-overlay" id="composeModal">
+  <div class="modal modal-compose">
+    <div class="modal-header compose-header-bar">
+      <h3 id="composeTitle">&#9993; New Message</h3>
+      <button class="modal-close" onclick="closeCompose()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-row">
+        <label class="form-label">To</label>
+        <input class="form-input" type="email" id="composeTo" placeholder="recipient@email.com">
+      </div>
+      <div class="form-row">
+        <label class="form-label">Cc</label>
+        <input class="form-input" type="text" id="composeCc" placeholder="cc@email.com (optional)">
+      </div>
+      <div class="form-row">
+        <label class="form-label">Subject</label>
+        <input class="form-input" type="text" id="composeSubject" placeholder="Subject">
+      </div>
+      <div class="form-row">
+        <textarea class="form-textarea" id="composeBody" rows="12" placeholder="Write your message..."></textarea>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-gray" onclick="closeCompose()">Discard</button>
+      <button class="btn btn-primary" onclick="sendCompose()">Send &#9992;</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== BULK EMAIL MODAL ==================== -->
+<div class="modal-overlay" id="bulkModal">
+  <div class="modal modal-bulk">
+    <div class="modal-header bulk-header-bar">
+      <h3>&#128202; Bulk Email Automation</h3>
+      <button class="modal-close" onclick="closeBulkEmail()">&times;</button>
+    </div>
+    <div class="modal-body" id="bulkBody">
+      <!-- Step 1: File Upload -->
+      <div class="step-title"><span class="step-num">1</span> Select Excel / CSV File</div>
+      <div class="file-row">
+        <div class="file-label" id="bulkFileLabel">No file selected</div>
+        <button class="btn btn-primary" onclick="document.getElementById('bulkFileInput').click()">Browse...</button>
+        <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulkFile(event)">
+      </div>
+
+      <!-- Column Settings (hidden until file loaded) -->
+      <div id="bulkColSettings" style="display:none">
+        <div class="col-settings">
+          <div>
+            <div class="col-label">Recipient Email column (required)</div>
+            <select class="form-select" id="bulkEmailCol" style="width:100%"></select>
+          </div>
+          <div>
+            <div class="col-label">Currency unit</div>
+            <div style="display:flex;gap:6px">
+              <input class="form-input" id="bulkCurrency" value="VND" style="width:80px">
+              <select class="form-select" id="bulkCurrPos">
+                <option value="after">After (15,000 VND)</option>
+                <option value="before">Before (VND 15,000)</option>
+              </select>
+            </div>
+          </div>
+        </div>
+        <div class="form-hint">Columns: <span id="bulkColList" style="color:#3fb950;font-family:'Courier New',monospace"></span></div>
+
+        <!-- Data Preview -->
+        <div class="preview-table-wrap" id="bulkPreview"></div>
+      </div>
+
+      <!-- Step 2: Template (hidden until file loaded) -->
+      <div id="bulkTemplateSection" style="display:none">
+        <div class="step-title"><span class="step-num">2</span> Email Template</div>
+        <div class="form-hint" style="margin-bottom:4px">Click a placeholder to insert at cursor position:</div>
+        <div class="chip-bar" id="bulkChips"></div>
+        <div class="form-row">
+          <label class="form-label">Subject</label>
+          <input class="form-input" id="bulkSubject" placeholder="Email subject with {placeholders}">
+        </div>
+        <div class="form-row">
+          <label class="form-label">Body</label>
+          <textarea class="form-textarea" id="bulkBodyText" rows="9" placeholder="Email body with {placeholders}..."></textarea>
+        </div>
+
+        <!-- Step 3: Send Mode -->
+        <div class="step-title"><span class="step-num step-num-green">3</span> Send Mode</div>
+        <div class="radio-group">
+          <label><input type="radio" name="bulkMode" value="text" checked> Text email only</label>
+        </div>
+
+        <!-- Template save/load -->
+        <div class="template-btns">
+          <button class="btn btn-gray" onclick="saveBulkTemplate()">&#128190; Save Template...</button>
+          <button class="btn btn-gray" onclick="loadBulkTemplate()">&#128194; Load Template...</button>
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer" style="justify-content:space-between">
+      <div class="progress-label" id="bulkProgress"></div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-green" id="btnSendAll" onclick="sendBulkAll()" style="display:none">Send All &#9992;</button>
+        <button class="btn btn-gray" onclick="closeBulkEmail()">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SIGNATURE MODAL ==================== -->
+<div class="modal-overlay" id="sigModal">
+  <div class="modal modal-sig">
+    <div class="modal-header">
+      <h3>&#9999;&#65039; Edit Email Signature</h3>
+      <button class="modal-close" onclick="closeSig()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="form-hint" style="margin-bottom:10px">This signature is automatically appended to every email you send.</div>
+      <textarea class="form-textarea" id="sigText" rows="8"></textarea>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-gray" onclick="resetSig()">Reset Default</button>
+      <button class="btn btn-gray" onclick="closeSig()">Cancel</button>
+      <button class="btn btn-primary" onclick="saveSig()">Save Signature</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== SETUP GUIDE MODAL ==================== -->
+<div class="modal-overlay" id="setupModal">
+  <div class="modal modal-setup">
+    <div class="modal-header">
+      <h3>&#128736; Google OAuth Setup Guide</h3>
+      <button class="modal-close" onclick="closeSetup()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="setup-step">
+        <h4>Step 1 &mdash; Create a Google Cloud Project</h4>
+        <p>Go to <a href="https://console.cloud.google.com" target="_blank">Google Cloud Console</a>.<br>
+        Create a new project (or select an existing one).</p>
+      </div>
+      <div class="setup-step">
+        <h4>Step 2 &mdash; Enable Gmail API</h4>
+        <p>Open <a href="https://console.cloud.google.com/apis/library/gmail.googleapis.com" target="_blank">Gmail API</a> in the API Library.<br>
+        Click <strong>Enable</strong>.</p>
+      </div>
+      <div class="setup-step">
+        <h4>Step 3 &mdash; Configure OAuth Consent Screen</h4>
+        <p>Go to <strong>APIs &amp; Services &rarr; OAuth consent screen</strong>.<br>
+        Select <strong>External</strong>, fill in the app name, support email.<br>
+        Add scope: <code>https://mail.google.com/</code><br>
+        Add yourself as a <strong>Test user</strong> (and any other users, up to 100).</p>
+      </div>
+      <div class="setup-step">
+        <h4>Step 4 &mdash; Create OAuth Client ID</h4>
+        <p>Go to <strong>APIs &amp; Services &rarr; Credentials</strong>.<br>
+        Click <strong>Create Credentials &rarr; OAuth client ID</strong>.<br>
+        Application type: <strong>Web application</strong>.<br>
+        Authorized JavaScript origins: add your GitHub Pages URL<br>
+        (e.g., <code>https://yourusername.github.io</code>).<br>
+        For local testing, also add <code>http://localhost</code>.<br>
+        Copy the <strong>Client ID</strong>.</p>
+      </div>
+      <div class="setup-step">
+        <h4>Step 5 &mdash; Paste Client ID</h4>
+        <p>Paste your Client ID into the field on the sign-in screen.<br>
+        Click <strong>Save</strong>, then <strong>Sign in with Google</strong>.</p>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-primary" onclick="closeSetup()">Got it</button>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== ADMIN PANEL ==================== -->
+<div id="adminPanel">
+  <div class="admin-card">
+    <div class="admin-title">
+      &#128273; Admin Panel
+      <button class="admin-close" onclick="document.getElementById('adminPanel').style.display='none'">&times;</button>
+    </div>
+    <div class="admin-tabs">
+      <button class="admin-tab on" id="atab-settings" onclick="switchAdminTab('settings')">&#9881; Settings</button>
+      <button class="admin-tab" id="atab-info" onclick="switchAdminTab('info')">&#128202; App Info</button>
+    </div>
+    <!-- Settings tab -->
+    <div class="admin-pane" id="apane-settings">
+      <div class="admin-fg">
+        <label>Google OAuth Client ID</label>
+        <input type="text" id="adminClientId" spellcheck="false">
+      </div>
+      <div class="admin-fg">
+        <label>Default Signature</label>
+        <textarea class="form-textarea" id="adminSig" rows="4" style="font-size:.78rem"></textarea>
+      </div>
+      <div class="admin-fg">
+        <label>Auto-refresh interval (seconds)</label>
+        <input type="number" id="adminRefresh" value="15" min="5" max="300" style="width:100px">
+      </div>
+      <button class="btn btn-primary" onclick="saveAdminSettings()" style="margin-top:6px">Save Settings</button>
+      <div style="margin-top:14px;border-top:1px solid #30363d;padding-top:10px">
+        <button class="btn btn-red" onclick="clearAllData()">&#128465; Clear All Stored Data</button>
+        <div class="form-hint">Removes saved Client ID, token, signature, templates from localStorage.</div>
+      </div>
+    </div>
+    <!-- Info tab -->
+    <div class="admin-pane hidden" id="apane-info">
+      <div class="admin-info-row"><span class="ai-label">App</span><span class="ai-value">HYSmartGmail — Bulk Email</span></div>
+      <div class="admin-info-row"><span class="ai-label">Version</span><span class="ai-value">1.0</span></div>
+      <div class="admin-info-row"><span class="ai-label">Signed in as</span><span class="ai-value" id="adminEmail">—</span></div>
+      <div class="admin-info-row"><span class="ai-label">Token status</span><span class="ai-value" id="adminTokenStatus">—</span></div>
+      <div class="admin-info-row"><span class="ai-label">Inbox count</span><span class="ai-value" id="adminInboxCount">—</span></div>
+      <div class="admin-info-row"><span class="ai-label">LocalStorage keys</span><span class="ai-value" id="adminLsCount">—</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== JAVASCRIPT ==================== -->
+<script>
+/* ===== CONSTANTS & STATE ===== */
+const PASSCODE_HASH = '4328778c44b47c4d4573043bf28f0ef3bd2bfc39d613dd37a97ec04920cd95d3';
+const AVATAR_COLORS = ['av0','av1','av2','av3','av4','av5','av6','av7'];
+const DEFAULT_SIG = '\n\n--\nBest regards,\nYour Name\nyour.email@gmail.com';
+const GMAIL_API = 'https://gmail.googleapis.com/gmail/v1/users/me';
+const LS_PREFIX = 'hysmartgmail_';
+
+let accessToken = null;
+let tokenClient = null;
+let userProfile = null;
+let inboxMessages = [];
+let currentMsgId = null;
+let currentMsg = null;
+let bulkData = null;
+let bulkColumns = [];
+let refreshTimer = null;
+let adminClicks = 0, adminTimer = null;
+
+/* ===== ADMIN: 5-CLICK EASTER EGG ===== */
+function handleAdminClick() {
+  adminClicks++;
+  if (adminClicks === 1) {
+    adminTimer = setTimeout(() => { adminClicks = 0; }, 3000);
+  }
+  if (adminClicks >= 5) {
+    clearTimeout(adminTimer);
+    adminClicks = 0;
+    promptAdminPasscode();
+  }
+}
+
+function promptAdminPasscode() {
+  const overlay = document.createElement('div');
+  overlay.style.cssText = 'position:fixed;inset:0;z-index:10001;background:rgba(0,0,0,.75);display:flex;align-items:center;justify-content:center';
+  const box = document.createElement('div');
+  box.style.cssText = 'background:#161b22;border:1px solid #f0883e;border-radius:10px;padding:24px;width:280px;text-align:center';
+  box.innerHTML = `
+    <div style="font-size:1.5rem;margin-bottom:8px">&#128272;</div>
+    <div style="font-size:0.85rem;color:#c9d1d9;margin-bottom:14px">Admin Passcode</div>
+    <input id="_apc" type="password" maxlength="20" placeholder="Enter passcode"
+      style="width:100%;padding:9px;background:#0d1117;border:1px solid #30363d;border-radius:6px;color:#f0f6fc;font-size:1rem;text-align:center;outline:none;letter-spacing:.2em">
+    <button id="_apcEnter" style="width:100%;margin-top:10px;padding:9px;background:linear-gradient(135deg,#1f6feb,#388bfd);border:none;border-radius:6px;color:#fff;cursor:pointer;font-size:0.9rem">Enter</button>
+    <button id="_apcCancel" style="width:100%;margin-top:6px;padding:7px;background:transparent;border:1px solid #30363d;border-radius:6px;color:#6e7681;cursor:pointer;font-size:0.8rem">Cancel</button>
+    <div id="_apcMsg" style="min-height:18px;margin-top:8px;font-size:0.75rem;color:#f85149"></div>`;
+  overlay.appendChild(box);
+  document.body.appendChild(overlay);
+  const inp = document.getElementById('_apc');
+  inp.focus();
+  inp.addEventListener('keydown', e => { if (e.key === 'Enter') checkAdminPc(overlay); });
+  document.getElementById('_apcEnter').addEventListener('click', () => checkAdminPc(overlay));
+  document.getElementById('_apcCancel').addEventListener('click', () => overlay.remove());
+}
+
+async function checkAdminPc(overlay) {
+  const inp = document.getElementById('_apc');
+  const hash = await sha256(inp.value);
+  if (hash === PASSCODE_HASH) {
+    overlay.remove();
+    openAdminPanel();
+  } else {
+    const msg = document.getElementById('_apcMsg');
+    msg.textContent = 'Wrong passcode.';
+    setTimeout(() => { if (msg) msg.textContent = ''; }, 1500);
+    inp.value = ''; inp.focus();
+  }
+}
+
+function openAdminPanel() {
+  document.getElementById('adminClientId').value = ls('clientId') || '';
+  document.getElementById('adminSig').value = ls('signature') || DEFAULT_SIG;
+  document.getElementById('adminRefresh').value = ls('refreshInterval') || '15';
+  document.getElementById('adminEmail').textContent = userProfile?.emailAddress || '—';
+  document.getElementById('adminTokenStatus').textContent = accessToken ? 'Active' : 'None';
+  document.getElementById('adminInboxCount').textContent = inboxMessages.length || '—';
+  let lsCount = 0;
+  for (let i = 0; i < localStorage.length; i++) {
+    if (localStorage.key(i).startsWith(LS_PREFIX)) lsCount++;
+  }
+  document.getElementById('adminLsCount').textContent = lsCount;
+  document.getElementById('adminPanel').style.display = 'flex';
+}
+
+function switchAdminTab(tab) {
+  document.querySelectorAll('.admin-tab').forEach(t => t.classList.remove('on'));
+  document.querySelectorAll('.admin-pane').forEach(p => p.classList.add('hidden'));
+  document.getElementById('atab-' + tab).classList.add('on');
+  document.getElementById('apane-' + tab).classList.remove('hidden');
+}
+
+function saveAdminSettings() {
+  ls('clientId', document.getElementById('adminClientId').value.trim());
+  ls('signature', document.getElementById('adminSig').value);
+  ls('refreshInterval', document.getElementById('adminRefresh').value);
+  document.getElementById('clientIdInput').value = ls('clientId') || '';
+  if (ls('clientId')) initTokenClient(ls('clientId'));
+  alert('Settings saved.');
+}
+
+function clearAllData() {
+  if (!confirm('Clear ALL stored data? You will need to sign in again.')) return;
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    if (localStorage.key(i).startsWith(LS_PREFIX)) keys.push(localStorage.key(i));
+  }
+  keys.forEach(k => localStorage.removeItem(k));
+  alert('All data cleared. Reloading...');
+  location.reload();
+}
+
+function setupAdminAccess() {
+  const lockIcon = document.getElementById('lockIconClick');
+  const hdrIcon = document.getElementById('hdrIcon');
+  if (lockIcon) lockIcon.addEventListener('click', handleAdminClick);
+  if (hdrIcon) hdrIcon.addEventListener('click', handleAdminClick);
+}
+
+/* ===== HELPERS ===== */
+function ls(k, v) {
+  if (v === undefined) return localStorage.getItem(LS_PREFIX + k);
+  if (v === null) localStorage.removeItem(LS_PREFIX + k);
+  else localStorage.setItem(LS_PREFIX + k, v);
+}
+
+async function sha256(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function avatarClass(name) {
+  let h = 0;
+  for (let i = 0; i < name.length; i++) h = (h + name.charCodeAt(i)) % 8;
+  return AVATAR_COLORS[h];
+}
+
+function avatarInitial(name) {
+  return (name || '?')[0].toUpperCase();
+}
+
+function formatDate(ts) {
+  const d = new Date(parseInt(ts));
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) {
+    return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString([], { month: 'short', day: 'numeric' });
+  }
+  return d.toLocaleDateString([], { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function decodeBase64Url(str) {
+  if (!str) return '';
+  let s = str.replace(/-/g, '+').replace(/_/g, '/');
+  try { return decodeURIComponent(escape(atob(s))); }
+  catch { try { return atob(s); } catch { return ''; } }
+}
+
+function encodeBase64Url(str) {
+  return btoa(unescape(encodeURIComponent(str))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function getHeader(msg, name) {
+  const h = msg.payload?.headers?.find(h => h.name.toLowerCase() === name.toLowerCase());
+  return h ? h.value : '';
+}
+
+function extractName(fromStr) {
+  const m = fromStr.match(/^"?([^"<]+)"?\s*</);
+  if (m) return m[1].trim();
+  const m2 = fromStr.match(/^([^@<]+)/);
+  return m2 ? m2[1].trim() : fromStr;
+}
+
+function extractEmail(fromStr) {
+  const m = fromStr.match(/<([^>]+)>/);
+  return m ? m[1] : fromStr;
+}
+
+function setStatus(msg) {
+  document.getElementById('statusBar').textContent = msg;
+}
+
+async function gmailFetch(path, opts = {}) {
+  const resp = await fetch(GMAIL_API + path, {
+    ...opts,
+    headers: { 'Authorization': 'Bearer ' + accessToken, ...(opts.headers || {}) }
+  });
+  if (resp.status === 401) {
+    setStatus('Session expired. Please sign in again.');
+    signOut();
+    return null;
+  }
+  return resp.json();
+}
+
+function showModal(id) { document.getElementById(id).classList.add('show'); }
+function hideModal(id) { document.getElementById(id).classList.remove('show'); }
+
+function formatNumber(val) {
+  const num = parseFloat(String(val).replace(/,/g, ''));
+  if (isNaN(num)) return val;
+  return num.toLocaleString();
+}
+
+/* ===== LOCK / UNLOCK ===== */
+async function tryUnlock() {
+  const code = document.getElementById('passcodeInput').value.trim();
+  if (!code) { showLockMsg('Enter a passcode', 'err'); return; }
+  const hash = await sha256(code);
+  if (hash === PASSCODE_HASH) {
+    ls('unlocked', '1');
+    document.getElementById('lockScreen').style.display = 'none';
+    showSignIn();
+  } else {
+    showLockMsg('Invalid passcode', 'err');
+  }
+}
+
+function showLockMsg(msg, type) {
+  const el = document.getElementById('lockMsg');
+  el.textContent = msg;
+  el.className = type === 'err' ? 'lock-msg-err' : 'lock-msg-ok';
+}
+
+function lockApp() {
+  ls('unlocked', null);
+  ls('token', null);
+  accessToken = null;
+  document.getElementById('lockScreen').style.display = 'flex';
+  document.getElementById('signInScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'none';
+  document.getElementById('passcodeInput').value = '';
+  document.getElementById('lockMsg').textContent = '';
+}
+
+/* ===== SIGN-IN ===== */
+function showSignIn() {
+  document.getElementById('signInScreen').style.display = 'flex';
+  const saved = ls('clientId');
+  if (saved) document.getElementById('clientIdInput').value = saved;
+}
+
+function saveClientId() {
+  const cid = document.getElementById('clientIdInput').value.trim();
+  if (!cid) return;
+  ls('clientId', cid);
+  initTokenClient(cid);
+  showSignInMsg('Client ID saved', 'ok');
+}
+
+function showSignInMsg(msg, type) {
+  const el = document.getElementById('signInMsg');
+  el.textContent = msg;
+  el.className = type === 'err' ? 'lock-msg-err' : 'lock-msg-ok';
+  if (type === 'ok') setTimeout(() => el.textContent = '', 3000);
+}
+
+function initTokenClient(clientId) {
+  if (typeof google === 'undefined' || !google.accounts) return;
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://mail.google.com/ https://www.googleapis.com/auth/userinfo.email',
+    callback: handleTokenResponse,
+  });
+}
+
+function doGoogleSignIn() {
+  const cid = document.getElementById('clientIdInput').value.trim();
+  if (!cid) { showSignInMsg('Enter your Google Client ID first', 'err'); return; }
+  ls('clientId', cid);
+  if (!tokenClient) initTokenClient(cid);
+  if (!tokenClient) { showSignInMsg('Google Identity Services not loaded. Check your internet connection.', 'err'); return; }
+  tokenClient.requestAccessToken();
+}
+
+function handleTokenResponse(resp) {
+  if (resp.error) {
+    showSignInMsg('Auth failed: ' + resp.error, 'err');
+    return;
+  }
+  accessToken = resp.access_token;
+  ls('token', accessToken);
+  unlockApp();
+}
+
+async function unlockApp() {
+  document.getElementById('signInScreen').style.display = 'none';
+  document.getElementById('app').style.display = 'flex';
+  setStatus('Loading...');
+  try {
+    const profile = await gmailFetch('/profile');
+    if (!profile) return;
+    userProfile = profile;
+    document.getElementById('userEmail').textContent = profile.emailAddress;
+    const sig = ls('signature');
+    if (!sig) ls('signature', DEFAULT_SIG);
+    await loadInbox();
+    startAutoRefresh();
+  } catch (e) {
+    setStatus('Error: ' + e.message);
+  }
+}
+
+/* ===== SIGN OUT ===== */
+function signOut() {
+  accessToken = null;
+  ls('token', null);
+  userProfile = null;
+  inboxMessages = [];
+  currentMsgId = null;
+  if (refreshTimer) clearInterval(refreshTimer);
+  document.getElementById('app').style.display = 'none';
+  showSignIn();
+}
+
+/* ===== INBOX ===== */
+async function loadInbox() {
+  setStatus('Loading inbox...');
+  const data = await gmailFetch('/messages?maxResults=50&labelIds=INBOX');
+  if (!data || !data.messages) {
+    setStatus(data ? 'Inbox is empty' : 'Failed to load inbox');
+    document.getElementById('inboxCount').textContent = '0 emails';
+    document.getElementById('inboxList').innerHTML = '<div style="padding:20px;text-align:center;color:#484f58">No messages found</div>';
+    return;
+  }
+  setStatus('Fetching messages...');
+  const msgPromises = data.messages.map(m => gmailFetch('/messages/' + m.id + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To'));
+  inboxMessages = (await Promise.all(msgPromises)).filter(Boolean);
+  renderInbox();
+  setStatus('Ready — ' + inboxMessages.length + ' emails');
+}
+
+function renderInbox(filter = '') {
+  const list = document.getElementById('inboxList');
+  const fl = filter.toLowerCase();
+  let html = '';
+  let count = 0;
+  for (const msg of inboxMessages) {
+    const from = getHeader(msg, 'From');
+    const subject = getHeader(msg, 'Subject') || '(no subject)';
+    const snippet = msg.snippet || '';
+    const name = extractName(from);
+    const date = getHeader(msg, 'Date');
+    const ts = msg.internalDate;
+    const unread = msg.labelIds?.includes('UNREAD');
+    if (fl && !name.toLowerCase().includes(fl) && !subject.toLowerCase().includes(fl) && !snippet.toLowerCase().includes(fl)) continue;
+    count++;
+    html += `<div class="email-card${unread ? ' unread' : ''}${msg.id === currentMsgId ? ' active' : ''}" onclick="openEmail('${msg.id}')">
+      <div class="ec-avatar ${avatarClass(name)}">${avatarInitial(name)}</div>
+      <div class="ec-body">
+        <div class="ec-top">
+          <span class="ec-sender">${escHtml(name)}</span>
+          <span class="ec-date">${formatDate(ts)}</span>
+        </div>
+        <div class="ec-subject">${escHtml(subject)}</div>
+        <div class="ec-snippet">${escHtml(snippet)}</div>
+      </div>
+    </div>`;
+  }
+  list.innerHTML = html || '<div style="padding:20px;text-align:center;color:#484f58">No matches</div>';
+  document.getElementById('inboxCount').textContent = count + ' email' + (count !== 1 ? 's' : '');
+}
+
+function filterInbox() {
+  renderInbox(document.getElementById('searchInput').value);
+}
+
+function startAutoRefresh() {
+  if (refreshTimer) clearInterval(refreshTimer);
+  refreshTimer = setInterval(async () => {
+    if (!accessToken) return;
+    try {
+      const data = await gmailFetch('/messages?maxResults=5&labelIds=INBOX');
+      if (!data || !data.messages) return;
+      const existingIds = new Set(inboxMessages.map(m => m.id));
+      const newIds = data.messages.filter(m => !existingIds.has(m.id));
+      if (newIds.length > 0) {
+        const newMsgs = await Promise.all(newIds.map(m =>
+          gmailFetch('/messages/' + m.id + '?format=metadata&metadataHeaders=From&metadataHeaders=Subject&metadataHeaders=Date&metadataHeaders=To')));
+        inboxMessages = [...newMsgs.filter(Boolean), ...inboxMessages];
+        renderInbox(document.getElementById('searchInput').value);
+        setStatus('Ready — ' + inboxMessages.length + ' emails (+' + newIds.length + ' new)');
+      }
+    } catch (e) { /* silent refresh */ }
+  }, 15000);
+}
+
+/* ===== EMAIL READER ===== */
+async function openEmail(id) {
+  currentMsgId = id;
+  renderInbox(document.getElementById('searchInput').value);
+  setStatus('Loading email...');
+  // Mobile: show reader panel
+  document.getElementById('readerPanel').classList.add('show-mobile');
+
+  const msg = await gmailFetch('/messages/' + id + '?format=full');
+  if (!msg) return;
+  currentMsg = msg;
+
+  document.getElementById('readerEmpty').style.display = 'none';
+  const content = document.getElementById('readerContent');
+  content.style.display = 'flex';
+
+  const from = getHeader(msg, 'From');
+  const subject = getHeader(msg, 'Subject') || '(no subject)';
+  const to = getHeader(msg, 'To') || '';
+  const date = getHeader(msg, 'Date');
+
+  document.getElementById('readerSubject').textContent = subject;
+  const name = extractName(from);
+  const email = extractEmail(from);
+  document.getElementById('readerAvatar').className = 'rm-avatar ' + avatarClass(name);
+  document.getElementById('readerAvatar').textContent = avatarInitial(name);
+  document.getElementById('readerSender').textContent = name;
+  document.getElementById('readerSenderEmail').textContent = '<' + email + '>';
+  document.getElementById('readerTo').textContent = 'To: ' + to;
+  document.getElementById('readerDate').textContent = date;
+
+  // Body
+  const body = extractBody(msg.payload);
+  document.getElementById('readerBody').textContent = body;
+
+  // Attachments
+  const attDiv = document.getElementById('readerAttachments');
+  const parts = msg.payload.parts || [];
+  const attachments = parts.filter(p => p.filename && p.filename.length > 0);
+  if (attachments.length > 0) {
+    attDiv.style.display = 'flex';
+    attDiv.innerHTML = attachments.map(a => {
+      const ext = (a.filename.split('.').pop() || '').toLowerCase();
+      const extClass = getExtClass(ext);
+      const size = a.body?.size ? (a.body.size / 1024).toFixed(1) + ' KB' : '';
+      return `<div class="att-chip" onclick="downloadAttachment('${msg.id}','${a.body.attachmentId}','${escAttr(a.filename)}')">
+        <span class="att-ext ${extClass}">${ext.toUpperCase()}</span>
+        ${escHtml(a.filename)} <span style="color:#484f58">${size}</span> &#11015;
+      </div>`;
+    }).join('');
+  } else {
+    attDiv.style.display = 'none';
+  }
+
+  // Mark as read
+  try {
+    await fetch(GMAIL_API + '/messages/' + id + '/modify', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ removeLabelIds: ['UNREAD'] })
+    });
+    const idx = inboxMessages.findIndex(m => m.id === id);
+    if (idx >= 0) {
+      inboxMessages[idx].labelIds = (inboxMessages[idx].labelIds || []).filter(l => l !== 'UNREAD');
+      renderInbox(document.getElementById('searchInput').value);
+    }
+  } catch (e) { /* silent */ }
+
+  setStatus('Ready');
+}
+
+function extractBody(payload) {
+  if (!payload) return '';
+  // Try to find text/plain part
+  if (payload.mimeType === 'text/plain' && payload.body?.data) {
+    return decodeBase64Url(payload.body.data);
+  }
+  if (payload.parts) {
+    // Prefer text/plain
+    for (const p of payload.parts) {
+      if (p.mimeType === 'text/plain' && p.body?.data) return decodeBase64Url(p.body.data);
+    }
+    // Try text/html as fallback
+    for (const p of payload.parts) {
+      if (p.mimeType === 'text/html' && p.body?.data) return htmlToText(decodeBase64Url(p.body.data));
+    }
+    // Recurse into multipart
+    for (const p of payload.parts) {
+      const r = extractBody(p);
+      if (r) return r;
+    }
+  }
+  // Fallback: html body
+  if (payload.body?.data) return decodeBase64Url(payload.body.data);
+  return '';
+}
+
+function htmlToText(html) {
+  const tmp = document.createElement('div');
+  tmp.innerHTML = html;
+  return tmp.textContent || tmp.innerText || '';
+}
+
+function getExtClass(ext) {
+  if (['pdf'].includes(ext)) return 'ext-pdf';
+  if (['doc', 'docx'].includes(ext)) return 'ext-doc';
+  if (['xls', 'xlsx', 'csv'].includes(ext)) return 'ext-xls';
+  if (['ppt', 'pptx'].includes(ext)) return 'ext-ppt';
+  if (['zip', 'rar', '7z'].includes(ext)) return 'ext-zip';
+  if (['png', 'jpg', 'jpeg', 'gif', 'bmp', 'svg'].includes(ext)) return 'ext-img';
+  if (['txt', 'log'].includes(ext)) return 'ext-txt';
+  return 'ext-other';
+}
+
+async function downloadAttachment(msgId, attId, filename) {
+  setStatus('Downloading ' + filename + '...');
+  const data = await gmailFetch('/messages/' + msgId + '/attachments/' + attId);
+  if (!data || !data.data) { setStatus('Download failed'); return; }
+  const bytes = Uint8Array.from(atob(data.data.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+  const blob = new Blob([bytes]);
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename; a.click();
+  URL.revokeObjectURL(url);
+  setStatus('Downloaded: ' + filename);
+}
+
+function closeMobileReader() {
+  document.getElementById('readerPanel').classList.remove('show-mobile');
+}
+
+/* ===== COMPOSE / REPLY / FORWARD ===== */
+function openCompose(to, cc, subject, body, title) {
+  document.getElementById('composeTitle').innerHTML = title || '&#9993; New Message';
+  document.getElementById('composeTo').value = to || '';
+  document.getElementById('composeCc').value = cc || '';
+  document.getElementById('composeSubject').value = subject || '';
+  const sig = ls('signature') || DEFAULT_SIG;
+  document.getElementById('composeBody').value = (body || '') + sig;
+  showModal('composeModal');
+  document.getElementById(to ? 'composeBody' : 'composeTo').focus();
+}
+
+function closeCompose() { hideModal('composeModal'); }
+
+function replyToEmail() {
+  if (!currentMsg) return;
+  const from = getHeader(currentMsg, 'From');
+  const subject = getHeader(currentMsg, 'Subject');
+  const date = getHeader(currentMsg, 'Date');
+  const email = extractEmail(from);
+  const name = extractName(from);
+  const body = extractBody(currentMsg.payload);
+  const quote = '\n\n--- Original Message ---\nFrom: ' + from + '\nDate: ' + date + '\n\n' + body;
+  openCompose(email, '', (subject.startsWith('Re:') ? '' : 'Re: ') + subject, quote, '&#8617; Reply');
+}
+
+function forwardEmail() {
+  if (!currentMsg) return;
+  const from = getHeader(currentMsg, 'From');
+  const subject = getHeader(currentMsg, 'Subject');
+  const date = getHeader(currentMsg, 'Date');
+  const body = extractBody(currentMsg.payload);
+  const fwd = '\n\n--- Forwarded Message ---\nFrom: ' + from + '\nDate: ' + date + '\nSubject: ' + subject + '\n\n' + body;
+  openCompose('', '', (subject.startsWith('Fwd:') ? '' : 'Fwd: ') + subject, fwd, '&#8618; Forward');
+}
+
+async function sendCompose() {
+  const to = document.getElementById('composeTo').value.trim();
+  const cc = document.getElementById('composeCc').value.trim();
+  const subject = document.getElementById('composeSubject').value.trim();
+  const body = document.getElementById('composeBody').value;
+  if (!to) { alert('Recipient (To) is required'); return; }
+  setStatus('Sending email...');
+  try {
+    await sendRawEmail(to, cc, subject, body);
+    closeCompose();
+    setStatus('Email sent to ' + to);
+  } catch (e) {
+    setStatus('Send failed: ' + e.message);
+    alert('Failed to send: ' + e.message);
+  }
+}
+
+async function sendRawEmail(to, cc, subject, body) {
+  let mime = 'Content-Type: text/plain; charset=utf-8\r\n';
+  mime += 'MIME-Version: 1.0\r\n';
+  mime += 'To: ' + to + '\r\n';
+  if (cc) mime += 'Cc: ' + cc + '\r\n';
+  mime += 'Subject: =?utf-8?B?' + btoa(unescape(encodeURIComponent(subject))) + '?=\r\n';
+  mime += '\r\n' + body;
+  const raw = encodeBase64Url(mime);
+  const resp = await fetch(GMAIL_API + '/messages/send', {
+    method: 'POST',
+    headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ raw })
+  });
+  if (!resp.ok) {
+    const err = await resp.json();
+    throw new Error(err.error?.message || 'Send failed');
+  }
+  return resp.json();
+}
+
+/* ===== BULK EMAIL ===== */
+function openBulkEmail() {
+  showModal('bulkModal');
+  // Restore saved template
+  const savedSubj = ls('mass_subject');
+  const savedBody = ls('mass_body');
+  if (savedSubj) document.getElementById('bulkSubject').value = savedSubj;
+  if (savedBody) document.getElementById('bulkBodyText').value = savedBody;
+}
+
+function closeBulkEmail() {
+  // Auto-save template
+  ls('mass_subject', document.getElementById('bulkSubject').value);
+  ls('mass_body', document.getElementById('bulkBodyText').value);
+  hideModal('bulkModal');
+}
+
+function handleBulkFile(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function (e) {
+    try {
+      const data = new Uint8Array(e.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      bulkData = XLSX.utils.sheet_to_json(ws, { defval: '' });
+      if (bulkData.length === 0) { alert('No data found in file'); return; }
+      bulkColumns = Object.keys(bulkData[0]);
+      const label = document.getElementById('bulkFileLabel');
+      label.textContent = file.name + ' (' + bulkData.length + ' rows, ' + bulkColumns.length + ' columns)';
+      label.classList.add('file-loaded');
+      renderBulkSettings();
+    } catch (err) {
+      alert('Error reading file: ' + err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function renderBulkSettings() {
+  // Column dropdown
+  const sel = document.getElementById('bulkEmailCol');
+  sel.innerHTML = bulkColumns.map(c =>
+    '<option value="' + escAttr(c) + '"' +
+    (c.toLowerCase().includes('email') || c.toLowerCase().includes('mail') ? ' selected' : '') +
+    '>' + escHtml(c) + '</option>'
+  ).join('');
+
+  // Column list
+  document.getElementById('bulkColList').textContent = bulkColumns.map(c => '{' + c + '}').join('  ');
+
+  // Preview table
+  const rows = bulkData.slice(0, 6);
+  let html = '<table class="preview-table"><thead><tr>' +
+    bulkColumns.map(c => '<th>' + escHtml(c) + '</th>').join('') +
+    '</tr></thead><tbody>' +
+    rows.map(r => '<tr>' + bulkColumns.map(c => '<td>' + escHtml(String(r[c] ?? '')) + '</td>').join('') + '</tr>').join('') +
+    '</tbody></table>';
+  document.getElementById('bulkPreview').innerHTML = html;
+
+  // Placeholder chips
+  const chipsHtml = bulkColumns.map(c =>
+    '<span class="chip" onclick="insertBulkPlaceholder(\'{' + escAttr(c) + '}\')">{' + escHtml(c) + '}</span>'
+  ).join('') +
+    '<span class="chip chip-currency" onclick="insertBulkPlaceholder(\'{currency}\')">{currency}</span>';
+  document.getElementById('bulkChips').innerHTML = chipsHtml;
+
+  // Show sections
+  document.getElementById('bulkColSettings').style.display = '';
+  document.getElementById('bulkTemplateSection').style.display = '';
+  document.getElementById('btnSendAll').style.display = '';
+}
+
+function insertBulkPlaceholder(text) {
+  const body = document.getElementById('bulkBodyText');
+  const start = body.selectionStart;
+  const end = body.selectionEnd;
+  const val = body.value;
+  body.value = val.substring(0, start) + text + val.substring(end);
+  body.focus();
+  body.selectionStart = body.selectionEnd = start + text.length;
+}
+
+async function sendBulkAll() {
+  if (!bulkData || bulkData.length === 0) { alert('Load a file first'); return; }
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  if (!emailCol) { alert('Select the email column'); return; }
+  const subjectTpl = document.getElementById('bulkSubject').value;
+  const bodyTpl = document.getElementById('bulkBodyText').value;
+  if (!subjectTpl || !bodyTpl) { alert('Fill in the subject and body template'); return; }
+
+  const count = bulkData.length;
+  if (!confirm('Send ' + count + ' emails using column "' + emailCol + '"?\nThis cannot be undone.')) return;
+
+  const currency = document.getElementById('bulkCurrency').value;
+  const currPos = document.getElementById('bulkCurrPos').value;
+  const sig = ls('signature') || DEFAULT_SIG;
+  const progressEl = document.getElementById('bulkProgress');
+  let sent = 0, failed = 0;
+  const failures = [];
+
+  document.getElementById('btnSendAll').classList.add('btn-disabled');
+
+  for (let i = 0; i < bulkData.length; i++) {
+    const row = bulkData[i];
+    const to = String(row[emailCol] || '').trim();
+    if (!to) { failed++; failures.push('Row ' + (i + 1) + ': no email'); continue; }
+
+    let subject = subjectTpl;
+    let body = bodyTpl;
+
+    for (const col of bulkColumns) {
+      let val = String(row[col] ?? '');
+      // Auto-format numeric with currency
+      if (/^[\d,.\s]+$/.test(val.trim()) && val.trim() !== '') {
+        const formatted = formatNumber(val);
+        if (currPos === 'after') val = formatted + ' ' + currency;
+        else val = currency + ' ' + formatted;
+      }
+      const re = new RegExp('\\{' + col.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\}', 'gi');
+      subject = subject.replace(re, val);
+      body = body.replace(re, val);
+    }
+    // Replace {currency} placeholder
+    subject = subject.replace(/\{currency\}/gi, currency);
+    body = body.replace(/\{currency\}/gi, currency);
+    body += sig;
+
+    progressEl.textContent = 'Sending... ' + (i + 1) + '/' + count;
+    setStatus('Bulk email: ' + (i + 1) + '/' + count);
+
+    try {
+      await sendRawEmail(to, '', subject, body);
+      sent++;
+    } catch (e) {
+      failed++;
+      failures.push(to + ': ' + e.message);
+    }
+    // Small delay to avoid rate limits
+    if (i < bulkData.length - 1) await new Promise(r => setTimeout(r, 200));
+  }
+
+  progressEl.textContent = 'Complete — ' + sent + '/' + count + ' sent' + (failed > 0 ? ' (' + failed + ' failed)' : '');
+  document.getElementById('btnSendAll').classList.remove('btn-disabled');
+  setStatus('Bulk email complete: ' + sent + ' sent, ' + failed + ' failed');
+
+  let resultMsg = 'Bulk email complete!\n\nSent: ' + sent + '\nFailed: ' + failed;
+  if (failures.length > 0) resultMsg += '\n\nFailures:\n' + failures.slice(0, 10).join('\n');
+  alert(resultMsg);
+}
+
+/* ===== TEMPLATE SAVE/LOAD ===== */
+function saveBulkTemplate() {
+  const subject = document.getElementById('bulkSubject').value;
+  const body = document.getElementById('bulkBodyText').value;
+  const content = 'SUBJECT: ' + subject + '\n---\n' + body;
+  const blob = new Blob([content], { type: 'text/plain' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'email_template.txt';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function loadBulkTemplate() {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = '.txt';
+  input.onchange = (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      const text = ev.target.result;
+      const sepIdx = text.indexOf('\n---\n');
+      if (sepIdx >= 0) {
+        const subjLine = text.substring(0, sepIdx);
+        const subj = subjLine.replace(/^SUBJECT:\s*/i, '');
+        const body = text.substring(sepIdx + 5);
+        document.getElementById('bulkSubject').value = subj;
+        document.getElementById('bulkBodyText').value = body;
+      } else {
+        document.getElementById('bulkBodyText').value = text;
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+/* ===== SIGNATURE ===== */
+function openSignature() {
+  document.getElementById('sigText').value = ls('signature') || DEFAULT_SIG;
+  showModal('sigModal');
+}
+
+function closeSig() { hideModal('sigModal'); }
+
+function saveSig() {
+  ls('signature', document.getElementById('sigText').value);
+  closeSig();
+}
+
+function resetSig() {
+  document.getElementById('sigText').value = DEFAULT_SIG;
+}
+
+/* ===== SETUP GUIDE ===== */
+function openSetupModal() { showModal('setupModal'); }
+function closeSetup() { hideModal('setupModal'); }
+
+/* ===== ESCAPE HELPERS ===== */
+function escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+function escAttr(s) {
+  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/'/g, '&#39;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/* ===== INIT ===== */
+const DEFAULT_CLIENT_ID = '743979590953-7s7uq3csjb25n1csupvg1a1e42lg020o.apps.googleusercontent.com';
+
+window.addEventListener('DOMContentLoaded', () => {
+  setupAdminAccess();
+  // Set default client ID if none saved
+  if (!ls('clientId')) ls('clientId', DEFAULT_CLIENT_ID);
+  // Check stored unlock state
+  if (ls('unlocked') === '1') {
+    document.getElementById('lockScreen').style.display = 'none';
+    // Check for stored token
+    const token = ls('token');
+    const cid = ls('clientId');
+    if (token && cid) {
+      accessToken = token;
+      // Verify token is still valid
+      fetch(GMAIL_API + '/profile', {
+        headers: { 'Authorization': 'Bearer ' + token }
+      }).then(r => {
+        if (r.ok) {
+          initTokenClient(cid);
+          unlockApp();
+        } else {
+          ls('token', null);
+          showSignIn();
+        }
+      }).catch(() => {
+        ls('token', null);
+        showSignIn();
+      });
+    } else {
+      showSignIn();
+      if (cid) initTokenClient(cid);
+    }
+  }
+});
+</script>
+</body>
+</html>
