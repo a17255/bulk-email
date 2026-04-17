@@ -911,9 +911,27 @@ function lockApp() {
 }
 
 function showSignIn() {
-  document.getElementById('signInScreen').style.display = 'flex';
   const saved = ls('clientId');
-  if (saved) document.getElementById('clientIdInput').value = saved;
+  if (saved) {
+    document.getElementById('clientIdInput').value = saved;
+    // Client ID already saved — hide config section, auto-trigger sign-in
+    document.querySelector('.signin-section').style.display = 'none';
+    document.querySelector('.config-row').style.display = 'none';
+    document.querySelector('.config-row + .form-hint').style.display = 'none';
+    initTokenClient(saved);
+    document.getElementById('signInScreen').style.display = 'flex';
+    // Auto-trigger after short delay (needs Google SDK loaded)
+    setTimeout(() => {
+      if (tokenClient) tokenClient.requestAccessToken();
+      else document.getElementById('signInScreen').style.display = 'flex';
+    }, 500);
+  } else {
+    // No Client ID saved — show full config screen
+    document.querySelector('.signin-section').style.display = '';
+    document.querySelector('.config-row').style.display = '';
+    document.querySelector('.config-row + .form-hint').style.display = '';
+    document.getElementById('signInScreen').style.display = 'flex';
+  }
 }
 
 function saveClientId() { const cid = document.getElementById('clientIdInput').value.trim(); if (!cid) return; ls('clientId', cid); initTokenClient(cid); showSignInMsg('Client ID saved', 'ok'); }
