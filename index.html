@@ -509,6 +509,13 @@ input,textarea,select,button{font-family:inherit}
         <button class="btn btn-primary" onclick="document.getElementById('bulkFileInput').click()">Browse...</button>
         <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulkFile(event)">
       </div>
+      <div id="bulkHeaderRowWrap" style="display:none;margin-bottom:8px">
+        <div style="display:flex;align-items:center;gap:8px">
+          <span class="col-label" style="white-space:nowrap">Header row:</span>
+          <input type="number" id="bulkHeaderRow" class="form-input" value="1" min="1" max="100" style="width:70px" onchange="reloadBulkWithHeader()">
+          <span class="form-hint" style="margin:0">Default: 1 (first row). Change if your title row is not row 1.</span>
+        </div>
+      </div>
 
       <!-- Column Settings (hidden until file loaded) -->
       <div id="bulkColSettings" style="display:none">
@@ -568,7 +575,8 @@ input,textarea,select,button{font-family:inherit}
         </div>
         <div class="step-title"><span class="step-num step-num-green">3</span> Send Mode</div>
         <div class="radio-group">
-          <label><input type="radio" name="bulkMode" value="text" checked> Text email only</label>
+          <label><input type="radio" name="bulkMode" value="attach"> Generate Word file and attach to each email</label>
+          <label><input type="radio" name="bulkMode" value="text" checked> Text email only (no attachment)</label>
         </div>
         <div class="template-btns">
           <button class="btn btn-gray" onclick="saveBulkTemplate()">&#128190; Save Template...</button>
@@ -718,6 +726,7 @@ let currentMsgId = null;
 let currentMsg = null;
 let bulkData = null;
 let bulkColumns = [];
+let bulkWorkbook = null; // keep workbook for re-parsing with different header row
 let bulkNameCol = '';
 let bulkExceptions = [];
 let refreshTimer = null;
@@ -1058,12 +1067,37 @@ async function openEmail(id) {
 
 function extractBody(payload) {
   if (!payload) return '';
-  if (payload.mimeType === 'text/plain' && payload.body?.data) return decodeBase64Url(payload.body.data);
-  if (payload.parts) { for (const p of payload.parts) { if (p.mimeType === 'text/plain' && p.body?.data) return decodeBase64Url(p.body.data); } for (const p of payload.parts) { if (p.mimeType === 'text/html' && p.body?.data) return htmlToText(decodeBase64Url(p.body.data)); } for (const p of payload.parts) { const r = extractBody(p); if (r) return r; } }
+  // Collect all text/plain and text/html parts recursively
+  const plains = [], htmls = [];
+  function walk(part) {
+    if (!part) return;
+    if (part.mimeType === 'text/plain' && part.body?.data) plains.push(decodeBase64Url(part.body.data));
+    else if (part.mimeType === 'text/html' && part.body?.data) htmls.push(decodeBase64Url(part.body.data));
+    if (part.parts) part.parts.forEach(walk);
+  }
+  walk(payload);
+  if (plains.length > 0) return plains[0];
+  if (htmls.length > 0) return htmlToText(htmls[0]);
   if (payload.body?.data) return decodeBase64Url(payload.body.data);
   return '';
 }
-function htmlToText(html) { const tmp = document.createElement('div'); tmp.innerHTML = html; return tmp.textContent || tmp.innerText || ''; }
+function htmlToText(html) {
+  const tmp = document.createElement('div'); tmp.innerHTML = html;
+  // Convert block elements to newlines
+  tmp.querySelectorAll('br').forEach(el => el.replaceWith('\n'));
+  tmp.querySelectorAll('p,div,tr,li,h1,h2,h3,h4,h5,h6').forEach(el => { el.prepend('\n'); el.append('\n'); });
+  tmp.querySelectorAll('td,th').forEach(el => el.append('\t'));
+  // Extract links
+  tmp.querySelectorAll('a[href]').forEach(el => {
+    const href = el.getAttribute('href');
+    const text = el.textContent.trim();
+    if (href && text && href !== text && !href.startsWith('mailto:')) el.textContent = text + ' (' + href + ')';
+  });
+  let text = tmp.textContent || tmp.innerText || '';
+  // Clean up excessive whitespace
+  text = text.replace(/\n{3,}/g, '\n\n').replace(/^\n+/, '').replace(/\n+$/, '');
+  return text;
+}
 function getExtClass(ext) { if (['pdf'].includes(ext)) return 'ext-pdf'; if (['doc','docx'].includes(ext)) return 'ext-doc'; if (['xls','xlsx','csv'].includes(ext)) return 'ext-xls'; if (['ppt','pptx'].includes(ext)) return 'ext-ppt'; if (['zip','rar','7z'].includes(ext)) return 'ext-zip'; if (['png','jpg','jpeg','gif','bmp','svg'].includes(ext)) return 'ext-img'; if (['txt','log'].includes(ext)) return 'ext-txt'; return 'ext-other'; }
 
 async function downloadAttachment(msgId, attId, filename) {
@@ -1108,7 +1142,7 @@ async function sendRawEmail(to, cc, subject, body) {
 
 /* ===== BULK EMAIL ===== */
 function openBulkEmail() {
-  if (isDemo) { alert('Bulk email requires a full license.'); return; }
+  if (isDemo) { setStatus('Bulk email requires a full license.'); return; }
   showModal('bulkModal');
   const savedSubj = ls('mass_subject'); const savedBody = ls('mass_body');
   if (savedSubj) document.getElementById('bulkSubject').value = savedSubj;
@@ -1128,17 +1162,48 @@ function handleBulkFile(event) {
   const reader = new FileReader();
   reader.onload = function (e) {
     try {
-      const data = new Uint8Array(e.target.result); const wb = XLSX.read(data, { type: 'array' });
-      const ws = wb.Sheets[wb.SheetNames[0]]; bulkData = XLSX.utils.sheet_to_json(ws, { defval: '' });
-      if (bulkData.length === 0) { alert('No data found'); return; }
-      bulkColumns = Object.keys(bulkData[0]);
+      const data = new Uint8Array(e.target.result);
+      bulkWorkbook = XLSX.read(data, { type: 'array' });
+      document.getElementById('bulkHeaderRow').value = '1';
+      document.getElementById('bulkHeaderRowWrap').style.display = '';
+      parseBulkSheet(1);
       const label = document.getElementById('bulkFileLabel');
       label.textContent = file.name + ' (' + bulkData.length + ' rows, ' + bulkColumns.length + ' columns)';
       label.classList.add('file-loaded');
       renderBulkSettings();
-    } catch (err) { alert('Error reading file: ' + err.message); }
+    } catch (err) { document.getElementById('bulkProgress').textContent = 'Error: ' + err.message; }
   };
   reader.readAsArrayBuffer(file);
+}
+
+function parseBulkSheet(headerRow) {
+  if (!bulkWorkbook) return;
+  const ws = bulkWorkbook.Sheets[bulkWorkbook.SheetNames[0]];
+  const range = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+  // Adjust range to start from headerRow (1-based)
+  const opts = { defval: '', header: 1 };
+  const allRows = XLSX.utils.sheet_to_json(ws, opts);
+  if (headerRow < 1 || headerRow > allRows.length) { bulkData = []; bulkColumns = []; return; }
+  // Use row at headerRow-1 as column names
+  const headerRowData = allRows[headerRow - 1];
+  const headers = headerRowData.map((h, i) => String(h || 'Column_' + (i + 1)).trim());
+  const dataRows = allRows.slice(headerRow);
+  bulkData = dataRows.map(row => {
+    const obj = {};
+    headers.forEach((h, i) => { obj[h] = row[i] !== undefined ? row[i] : ''; });
+    return obj;
+  });
+  bulkColumns = headers;
+}
+
+function reloadBulkWithHeader() {
+  const hr = parseInt(document.getElementById('bulkHeaderRow').value) || 1;
+  parseBulkSheet(hr);
+  if (bulkData.length === 0) { document.getElementById('bulkProgress').textContent = 'No data found at header row ' + hr; return; }
+  document.getElementById('bulkProgress').textContent = '';
+  const label = document.getElementById('bulkFileLabel');
+  label.textContent = label.textContent.replace(/\(\d+ rows.*\)/, '(' + bulkData.length + ' rows, ' + bulkColumns.length + ' columns)');
+  renderBulkSettings();
 }
 
 function renderBulkSettings() {
@@ -1217,30 +1282,102 @@ function substituteBulkRow(rowIdx) {
 }
 
 async function sendBulkAll() {
-  if (!bulkData || bulkData.length === 0) { alert('Load a file first'); return; }
+  if (!bulkData || bulkData.length === 0) { document.getElementById('bulkProgress').textContent = 'Load a file first'; return; }
   const emailCol = document.getElementById('bulkEmailCol').value;
-  if (!emailCol) { alert('Select the email column'); return; }
-  if (!document.getElementById('bulkSubject').value || !document.getElementById('bulkBodyText').value) { alert('Fill in the subject and body template'); return; }
+  if (!emailCol) { document.getElementById('bulkProgress').textContent = 'Select the email column'; return; }
+  if (!document.getElementById('bulkSubject').value || !document.getElementById('bulkBodyText').value) { document.getElementById('bulkProgress').textContent = 'Fill in subject and body template'; return; }
+  const attachMode = document.querySelector('input[name=bulkMode]:checked')?.value === 'attach';
   const count = bulkData.length;
-  if (!confirm('Send ' + count + ' emails using column "' + emailCol + '"?\nThis cannot be undone.')) return;
   const progressEl = document.getElementById('bulkProgress');
   let sent = 0, failed = 0; const failures = [];
   document.getElementById('btnSendAll').classList.add('btn-disabled');
+  document.getElementById('btnReview').classList.add('btn-disabled');
   for (let i = 0; i < count; i++) {
     const { to, subject, body } = substituteBulkRow(i);
     if (!to) { failed++; failures.push('Row ' + (i + 1) + ': no email'); continue; }
     progressEl.textContent = 'Sending... ' + (i + 1) + '/' + count;
     setStatus('Bulk email: ' + (i + 1) + '/' + count);
-    try { await sendRawEmail(to, '', subject, body); sent++; }
-    catch (e) { failed++; failures.push(to + ': ' + e.message); }
-    if (i < count - 1) await new Promise(r => setTimeout(r, 200));
+    try {
+      if (attachMode) {
+        const docBlob = generateWordDoc(i);
+        const nameCol = document.getElementById('bulkNameCol').value;
+        const recipientName = String(bulkData[i][nameCol] || 'recipient').replace(/[^a-zA-Z0-9_\- ]/g, '');
+        const filename = recipientName + '_' + new Date().toISOString().slice(0,10).replace(/-/g,'') + '.docx';
+        await sendEmailWithAttachment(to, subject, body, docBlob, filename);
+      } else {
+        await sendRawEmail(to, '', subject, body);
+      }
+      sent++;
+    } catch (e) { failed++; failures.push(to + ': ' + e.message); }
+    if (i < count - 1) await new Promise(r => setTimeout(r, 300));
   }
-  progressEl.textContent = 'Complete — ' + sent + '/' + count + ' sent' + (failed > 0 ? ' (' + failed + ' failed)' : '');
+  const failText = failed > 0 ? ' (' + failed + ' failed: ' + failures.slice(0,3).join('; ') + ')' : '';
+  progressEl.textContent = 'Done — ' + sent + '/' + count + ' sent' + failText;
   document.getElementById('btnSendAll').classList.remove('btn-disabled');
+  document.getElementById('btnReview').classList.remove('btn-disabled');
   setStatus('Bulk email complete: ' + sent + ' sent, ' + failed + ' failed');
-  let resultMsg = 'Bulk email complete!\n\nSent: ' + sent + '\nFailed: ' + failed;
-  if (failures.length > 0) resultMsg += '\n\nFailures:\n' + failures.slice(0, 10).join('\n');
-  alert(resultMsg);
+}
+
+/* Generate a simple Word doc (.docx) for a row */
+function generateWordDoc(rowIdx) {
+  const row = bulkData[rowIdx];
+  const excluded = new Set(bulkExceptions);
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  const nameCol = document.getElementById('bulkNameCol').value;
+  const currency = document.getElementById('bulkCurrency').value;
+  const currPos = document.getElementById('bulkCurrPos').value;
+  const recipientName = String(row[nameCol] || '');
+  const today = new Date().toLocaleDateString('en-GB');
+  // Build HTML content that Word can open
+  let tableRows = '';
+  for (const col of bulkColumns) {
+    if (excluded.has(col) || col === emailCol) continue;
+    let val = String(row[col] ?? '');
+    if (/^[\d,.\s]+$/.test(val.trim()) && val.trim() !== '') {
+      const f = formatNumber(val);
+      val = currPos === 'after' ? f + ' ' + currency : currency + ' ' + f;
+    }
+    tableRows += '<tr><td style="border:1px solid #ccc;padding:6px 10px;font-weight:bold">' + escHtml(col) + '</td><td style="border:1px solid #ccc;padding:6px 10px">' + escHtml(val) + '</td></tr>';
+  }
+  const html = `<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+<head><meta charset="utf-8"><style>body{font-family:Calibri,sans-serif;margin:40px}h1{color:#1a73e8;font-size:16pt;text-align:center}table{border-collapse:collapse;width:100%;margin-top:16px}th{background:#1a73e8;color:#fff;padding:8px 10px;text-align:left;border:1px solid #1a73e8}td{border:1px solid #ccc;padding:6px 10px}.footer{margin-top:20px;text-align:center;font-size:9pt;color:#888}</style></head>
+<body><h1>MONTHLY SALARY NOTICE</h1>
+<p><b>Employee:</b> ${escHtml(recipientName)}<br><b>Date:</b> ${today}</p>
+<table><thead><tr><th>Item</th><th>Value</th></tr></thead><tbody>${tableRows}</tbody></table>
+<p class="footer">This is an automated salary notice. Please contact HR if you have any questions.</p></body></html>`;
+  return new Blob([html], { type: 'application/vnd.ms-word' });
+}
+
+/* Send email with attachment via Gmail API multipart MIME */
+async function sendEmailWithAttachment(to, subject, body, blob, filename) {
+  const boundary = 'boundary_' + Date.now() + '_' + Math.random().toString(36).slice(2);
+  const attachB64 = await blobToBase64(blob);
+  let mime = 'MIME-Version: 1.0\r\n';
+  mime += 'To: ' + to + '\r\n';
+  mime += 'Subject: =?utf-8?B?' + btoa(unescape(encodeURIComponent(subject))) + '?=\r\n';
+  mime += 'Content-Type: multipart/mixed; boundary="' + boundary + '"\r\n\r\n';
+  mime += '--' + boundary + '\r\n';
+  mime += 'Content-Type: text/plain; charset=utf-8\r\n\r\n';
+  mime += body + '\r\n';
+  mime += '--' + boundary + '\r\n';
+  mime += 'Content-Type: application/vnd.ms-word; name="' + filename + '"\r\n';
+  mime += 'Content-Disposition: attachment; filename="' + filename + '"\r\n';
+  mime += 'Content-Transfer-Encoding: base64\r\n\r\n';
+  mime += attachB64 + '\r\n';
+  mime += '--' + boundary + '--';
+  const raw = encodeBase64Url(mime);
+  const resp = await fetch(GMAIL_API + '/messages/send', { method: 'POST', headers: { 'Authorization': 'Bearer ' + accessToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ raw }) });
+  if (!resp.ok) { const err = await resp.json(); throw new Error(err.error?.message || 'Send failed'); }
+  return resp.json();
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => { const dataUrl = reader.result; resolve(dataUrl.split(',')[1]); };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
 }
 
 /* ===== PREVIEW (Feature 3) ===== */
@@ -1257,7 +1394,28 @@ function previewBulkEmail() {
 function closePreview() { hideModal('previewModal'); }
 
 /* ===== TEMPLATE SAVE/LOAD ===== */
-function saveBulkTemplate() { const subject = document.getElementById('bulkSubject').value; const body = document.getElementById('bulkBodyText').value; const content = 'SUBJECT: ' + subject + '\n---\n' + body; const blob = new Blob([content], { type: 'text/plain' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = 'email_template.txt'; a.click(); URL.revokeObjectURL(url); }
+let _lastDirHandle = null; // remember last save directory
+async function saveBulkTemplate() {
+  const subject = document.getElementById('bulkSubject').value;
+  const body = document.getElementById('bulkBodyText').value;
+  const content = 'SUBJECT: ' + subject + '\n---\n' + body;
+  // Try File System Access API (picker with location memory)
+  if (window.showSaveFilePicker) {
+    try {
+      const opts = { suggestedName: 'email_template.txt', types: [{ description: 'Text file', accept: { 'text/plain': ['.txt'] } }] };
+      if (_lastDirHandle) opts.startIn = _lastDirHandle;
+      const handle = await window.showSaveFilePicker(opts);
+      _lastDirHandle = handle;
+      const writable = await handle.createWritable();
+      await writable.write(content);
+      await writable.close();
+      return;
+    } catch (e) { if (e.name === 'AbortError') return; /* user cancelled */ }
+  }
+  // Fallback: simple download
+  const blob = new Blob([content], { type: 'text/plain' }); const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'email_template.txt'; a.click(); URL.revokeObjectURL(url);
+}
 function loadBulkTemplate() { const input = document.createElement('input'); input.type = 'file'; input.accept = '.txt'; input.onchange = (e) => { const file = e.target.files[0]; if (!file) return; const reader = new FileReader(); reader.onload = (ev) => { const text = ev.target.result; const sepIdx = text.indexOf('\n---\n'); if (sepIdx >= 0) { document.getElementById('bulkSubject').value = text.substring(0, sepIdx).replace(/^SUBJECT:\s*/i, ''); document.getElementById('bulkBodyText').value = text.substring(sepIdx + 5); } else { document.getElementById('bulkBodyText').value = text; } }; reader.readAsText(file); }; input.click(); }
 
 /* ===== SIGNATURE ===== */
