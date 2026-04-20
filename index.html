@@ -249,6 +249,33 @@ input,textarea,select,button{font-family:inherit}
 .chip-currency{color:#f0883e;border-color:#f0883e44}
 .chip-currency:hover{background:#f0883e22;border-color:#f0883e}
 
+/* Validation panel (name <-> email rule check) */
+.validation-panel{margin:8px 0;padding:10px;background:#0d111799;border:1px solid #21262d;border-radius:6px}
+.validation-panel.has-warn{border-color:#f8514944;background:#f8514911}
+.validation-header{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:6px}
+.validation-title{font-size:.68rem;font-weight:600;color:#58a6ff;text-transform:uppercase;letter-spacing:.06em}
+.validation-panel.has-warn .validation-title{color:#f85149}
+.validation-rule-box{padding:6px 10px;background:#0d1117;border:1px solid #30363d;border-radius:5px;font-size:.72rem;color:#c9d1d9;margin-bottom:6px;font-family:'Courier New',monospace}
+.validation-rule-box .rule-pat{color:#3fb950;font-weight:600}
+.validation-rule-box .rule-conf{color:#8b949e;font-size:.66rem;margin-left:8px}
+.validation-status{font-size:.72rem;padding:5px 8px;border-radius:4px;margin-bottom:6px}
+.validation-status-ok{background:#238a3b22;color:#3fb950;border:1px solid #3fb95044}
+.validation-status-err{background:#f8514922;color:#f85149;border:1px solid #f8514966}
+.validation-actions{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap}
+.mismatch-table{width:100%;border-collapse:collapse;font-size:.72rem;margin-top:4px}
+.mismatch-table th{background:#21262d;color:#58a6ff;font-weight:600;padding:5px 8px;text-align:left;border-bottom:1px solid #30363d}
+.mismatch-table td{padding:5px 8px;border-bottom:1px solid #21262d;vertical-align:middle}
+.mismatch-row{background:#f8514911}
+.mismatch-row:hover{background:#f8514922}
+.mismatch-cell{color:#f85149;font-weight:500}
+.mismatch-cell-expected{color:#8b949e;font-style:italic;font-size:.68rem}
+.mismatch-edit-input{width:100%;padding:3px 6px;font-size:.72rem;background:#0d1117;color:#c9d1d9;border:1px solid #f85149;border-radius:4px;box-sizing:border-box}
+.mismatch-row-btn{padding:3px 8px;font-size:.68rem;background:transparent;border:1px solid #30363d;color:#c9d1d9;border-radius:4px;cursor:pointer}
+.mismatch-row-btn:hover{border-color:#58a6ff;color:#58a6ff}
+.mismatch-row-btn.save{border-color:#3fb95066;color:#3fb950}
+.mismatch-row-btn.save:hover{background:#3fb95022}
+.validation-ack-note{font-size:.66rem;color:#8b949e;margin-top:4px;font-style:italic}
+
 /* Radio group */
 .radio-group{display:flex;gap:12px;margin:6px 0}
 .radio-group label{display:flex;align-items:center;gap:5px;font-size:.76rem;color:#c9d1d9;cursor:pointer}
@@ -524,12 +551,29 @@ input,textarea,select,button{font-family:inherit}
           <div style="font-size:.68rem;font-weight:600;color:#58a6ff;margin-bottom:6px;text-transform:uppercase;letter-spacing:.06em">Column Roles</div>
           <div class="col-ref-row">
             <span class="col-ref-label">Name column</span>
-            <select class="form-select" id="bulkNameCol" style="flex:1" onchange="bulkNameCol=this.value"></select>
+            <select class="form-select" id="bulkNameCol" style="flex:1" onchange="bulkNameCol=this.value;runBulkValidation()"></select>
           </div>
           <div class="col-ref-row">
             <span class="col-ref-label">Email column</span>
-            <select class="form-select" id="bulkEmailCol" style="flex:1"></select>
+            <select class="form-select" id="bulkEmailCol" style="flex:1" onchange="runBulkValidation()"></select>
           </div>
+        </div>
+
+        <!-- Name <-> Email validation panel -->
+        <div id="bulkValidationPanel" class="validation-panel" style="display:none">
+          <div class="validation-header">
+            <span class="validation-title" id="bulkValidationTitle">Name &#8596; Email Check</span>
+            <button class="mismatch-row-btn" onclick="runBulkValidation()">&#8635; Re-check</button>
+          </div>
+          <div id="bulkValidationRule" class="validation-rule-box"></div>
+          <div id="bulkValidationStatus" class="validation-status"></div>
+          <div id="bulkValidationMismatches"></div>
+          <div class="validation-actions" id="bulkValidationActions" style="display:none">
+            <button class="btn btn-gray" onclick="saveCorrectedExcel()">&#128190; Save to Excel file...</button>
+            <button class="btn btn-gray" onclick="downloadCorrectedExcel()">&#11015; Download corrected</button>
+            <button class="btn btn-gray" onclick="acknowledgeWarnings()" id="bulkAckBtn">&#9888; Acknowledge &amp; keep as is</button>
+          </div>
+          <div id="bulkAckNote" class="validation-ack-note"></div>
         </div>
 
         <!-- Currency settings -->
@@ -729,6 +773,9 @@ let bulkColumns = [];
 let bulkWorkbook = null; // keep workbook for re-parsing with different header row
 let bulkNameCol = '';
 let bulkExceptions = [];
+let bulkValidation = { rule: null, mismatches: [], acknowledged: false };
+let bulkOriginalFileHandle = null; // set if file was opened via showOpenFilePicker
+let bulkOriginalFileName = '';
 let refreshTimer = null;
 let adminClicks = 0, adminTimer = null;
 let isDemo = false;
@@ -1140,6 +1187,278 @@ async function sendRawEmail(to, cc, subject, body) {
   return resp.json();
 }
 
+/* ===== NAME <-> EMAIL VALIDATION ===== */
+function _nameParts(name) {
+  return String(name || '').trim().replace(/[,]/g, ' ').split(/\s+/).filter(Boolean);
+}
+function _mostCommon(arr) {
+  const c = {}; let best = arr[0] || '', bc = 0;
+  for (const x of arr) c[x] = (c[x] || 0) + 1;
+  for (const [k, v] of Object.entries(c)) if (v > bc) { bc = v; best = k; }
+  return best;
+}
+const _NAMING_PATTERNS = [
+  { key: 'first.last',   label: '{first}.{last}',   fn: p => p.length >= 2 ? p[0] + '.' + p[p.length - 1] : p[0] },
+  { key: 'last.first',   label: '{last}.{first}',   fn: p => p.length >= 2 ? p[p.length - 1] + '.' + p[0] : p[0] },
+  { key: 'firstlast',    label: '{first}{last}',    fn: p => p.length >= 2 ? p[0] + p[p.length - 1] : p[0] },
+  { key: 'lastfirst',    label: '{last}{first}',    fn: p => p.length >= 2 ? p[p.length - 1] + p[0] : p[0] },
+  { key: 'first_last',   label: '{first}_{last}',   fn: p => p.length >= 2 ? p[0] + '_' + p[p.length - 1] : p[0] },
+  { key: 'first-last',   label: '{first}-{last}',   fn: p => p.length >= 2 ? p[0] + '-' + p[p.length - 1] : p[0] },
+  { key: 'f.last',       label: '{f}.{last}',       fn: p => p.length >= 2 ? p[0][0] + '.' + p[p.length - 1] : p[0] },
+  { key: 'flast',        label: '{f}{last}',        fn: p => p.length >= 2 ? p[0][0] + p[p.length - 1] : p[0] },
+  { key: 'firstl',       label: '{first}{l}',       fn: p => p.length >= 2 ? p[0] + p[p.length - 1][0] : p[0] },
+  { key: 'first',        label: '{first}',          fn: p => p[0] },
+  { key: 'last',         label: '{last}',           fn: p => p[p.length - 1] }
+];
+function _titleCase(s) { return s ? s[0].toUpperCase() + s.slice(1).toLowerCase() : s; }
+function _applyCasing(rawParts, pat, casing) {
+  let shaped;
+  if (casing === 'title') shaped = rawParts.map(_titleCase);
+  else if (casing === 'upper') shaped = rawParts.map(s => s.toUpperCase());
+  else shaped = rawParts.map(s => s.toLowerCase());
+  try { return pat.fn(shaped); } catch { return ''; }
+}
+function _detectCasing(actualLocal, rawParts, pat) {
+  // Returns 'lower' | 'upper' | 'title' based on which reproduces actualLocal
+  for (const c of ['lower', 'upper', 'title']) {
+    if (_applyCasing(rawParts, pat, c) === actualLocal) return c;
+  }
+  return 'lower';
+}
+function inferNamingRule(pairs) {
+  // pairs: [{name, email}, ...] (only non-empty)
+  const clean = pairs.filter(p => p.name && p.email && p.email.includes('@'));
+  if (!clean.length) return { rule: null, pattern: null, domain: '', description: 'No valid name/email pairs to analyze.', confidence: 0 };
+  const domains = clean.map(p => (p.email.split('@')[1] || '').toLowerCase());
+  const domain = _mostCommon(domains);
+  const best = { rate: -1, matches: 0, pat: null, casing: 'lower' };
+  for (const pat of _NAMING_PATTERNS) {
+    for (const casing of ['lower', 'title', 'upper']) {
+      let matches = 0, total = 0;
+      for (const pair of clean) {
+        const parts = _nameParts(pair.name);
+        if (!parts.length) continue;
+        const actualLocal = pair.email.split('@')[0];
+        const predicted = _applyCasing(parts, pat, casing);
+        if (!predicted) continue;
+        total++;
+        // Strict match: the casing that exactly reproduces the email local part wins.
+        // This ensures e.g. "AnNguyen" is inferred as title-case lastfirst, not lowercase.
+        if (predicted === actualLocal) matches++;
+      }
+      if (!total) continue;
+      const rate = matches / total;
+      if (rate > best.rate || (rate === best.rate && matches > best.matches)) {
+        best.rate = rate; best.matches = matches; best.total = total; best.pat = pat; best.casing = casing;
+      }
+    }
+  }
+  if (!best.pat || best.rate < 0.4) {
+    return { rule: null, pattern: null, domain, description: 'Could not infer a consistent naming rule from the data.', confidence: best.rate < 0 ? 0 : best.rate };
+  }
+  const caseLabel = best.casing === 'lower' ? 'lowercase' : best.casing === 'upper' ? 'UPPERCASE' : 'CamelCase';
+  return {
+    rule: true, pattern: best.pat.key, casing: best.casing, domain,
+    description: best.pat.label + '@' + (domain || 'domain') + '  (' + caseLabel + ')',
+    confidence: best.rate,
+    matchCount: best.matches, totalCount: best.total,
+    predict: (name) => {
+      const parts = _nameParts(name);
+      if (!parts.length) return '';
+      const local = _applyCasing(parts, best.pat, best.casing);
+      return local ? (local + '@' + domain) : '';
+    }
+  };
+}
+
+function runBulkValidation() {
+  const panel = document.getElementById('bulkValidationPanel');
+  if (!bulkData || !bulkData.length) { panel.style.display = 'none'; return; }
+  const nameCol = document.getElementById('bulkNameCol').value;
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  if (!nameCol || !emailCol || nameCol === emailCol) {
+    panel.style.display = 'none';
+    return;
+  }
+  panel.style.display = '';
+  const pairs = bulkData.map(r => ({ name: String(r[nameCol] || ''), email: String(r[emailCol] || '').trim() }));
+  const rule = inferNamingRule(pairs);
+  bulkValidation.rule = rule;
+  bulkValidation.acknowledged = false;
+
+  const ruleBox = document.getElementById('bulkValidationRule');
+  if (rule.rule) {
+    const confPct = Math.round(rule.confidence * 100);
+    ruleBox.innerHTML = 'Rule: <span class="rule-pat">' + escHtml(rule.description) + '</span>' +
+      '<span class="rule-conf">(matches ' + rule.matchCount + '/' + rule.totalCount + ' samples &middot; ' + confPct + '%)</span>';
+  } else {
+    ruleBox.innerHTML = '<span style="color:#f0883e">' + escHtml(rule.description) + '</span>';
+  }
+
+  const mismatches = [];
+  if (rule.rule && rule.predict) {
+    pairs.forEach((p, idx) => {
+      const actualLocal = (p.email.split('@')[0] || '').trim();
+      const actualDomain = (p.email.split('@')[1] || '').toLowerCase();
+      if (!p.name.trim() && !p.email.trim()) return; // skip blank rows
+      if (!p.email.trim()) {
+        mismatches.push({ idx, name: p.name, email: '', predicted: rule.predict(p.name), reason: 'missing email' });
+        return;
+      }
+      const predicted = rule.predict(p.name);
+      if (!predicted) return;
+      const predLocal = predicted.split('@')[0];
+      const predDomain = (predicted.split('@')[1] || '').toLowerCase();
+      // Case-insensitive local-part compare
+      const localOk = actualLocal.toLowerCase() === predLocal.toLowerCase();
+      const domainOk = !rule.domain || actualDomain === predDomain;
+      if (!localOk || !domainOk) {
+        mismatches.push({ idx, name: p.name, email: p.email, predicted, reason: !domainOk ? 'domain differs' : 'pattern mismatch' });
+      }
+    });
+  }
+  bulkValidation.mismatches = mismatches;
+  renderValidationResults();
+}
+
+function renderValidationResults() {
+  const panel = document.getElementById('bulkValidationPanel');
+  const statusEl = document.getElementById('bulkValidationStatus');
+  const listEl = document.getElementById('bulkValidationMismatches');
+  const actionsEl = document.getElementById('bulkValidationActions');
+  const ackNote = document.getElementById('bulkAckNote');
+  const mismatches = bulkValidation.mismatches || [];
+  const rule = bulkValidation.rule;
+
+  if (!rule || !rule.rule) {
+    panel.classList.remove('has-warn');
+    statusEl.className = 'validation-status validation-status-err';
+    statusEl.textContent = 'Cannot auto-check rows — rule not determined. Verify names/emails manually.';
+    listEl.innerHTML = '';
+    actionsEl.style.display = 'none';
+    ackNote.textContent = '';
+    return;
+  }
+  if (mismatches.length === 0) {
+    panel.classList.remove('has-warn');
+    statusEl.className = 'validation-status validation-status-ok';
+    statusEl.textContent = '\u2713 All ' + bulkData.length + ' rows match the inferred rule.';
+    listEl.innerHTML = '';
+    actionsEl.style.display = 'none';
+    ackNote.textContent = '';
+    return;
+  }
+  panel.classList.add('has-warn');
+  statusEl.className = 'validation-status validation-status-err';
+  statusEl.textContent = '\u26A0 ' + mismatches.length + ' row' + (mismatches.length > 1 ? 's' : '') + ' do not match the rule. Review and edit below.';
+  let html = '<table class="mismatch-table"><thead><tr>' +
+    '<th style="width:40px">#</th><th>Name</th><th>Email (actual)</th><th>Expected</th><th style="width:130px">Action</th>' +
+    '</tr></thead><tbody>';
+  for (const m of mismatches) {
+    const rowNum = m.idx + 1;
+    html += '<tr class="mismatch-row" data-idx="' + m.idx + '">' +
+      '<td>' + rowNum + '</td>' +
+      '<td class="mm-name-cell">' + escHtml(m.name) + '</td>' +
+      '<td class="mismatch-cell mm-email-cell">' + escHtml(m.email || '(empty)') + '</td>' +
+      '<td class="mismatch-cell-expected">' + escHtml(m.predicted || '—') + '</td>' +
+      '<td>' +
+        '<button class="mismatch-row-btn" onclick="editMismatchRow(' + m.idx + ')">Edit</button> ' +
+        '<button class="mismatch-row-btn save" onclick="useExpectedEmail(' + m.idx + ')" title="Replace email with expected">Use expected</button>' +
+      '</td>' +
+      '</tr>';
+  }
+  html += '</tbody></table>';
+  listEl.innerHTML = html;
+  actionsEl.style.display = '';
+  ackNote.textContent = bulkValidation.acknowledged
+    ? '\u2713 Warnings acknowledged — sending will proceed with mismatches as-is.'
+    : 'Edit rows, save, or acknowledge before sending.';
+}
+
+function editMismatchRow(rowIdx) {
+  const nameCol = document.getElementById('bulkNameCol').value;
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  const tr = document.querySelector('.mismatch-row[data-idx="' + rowIdx + '"]');
+  if (!tr) return;
+  const curName = String(bulkData[rowIdx][nameCol] || '');
+  const curEmail = String(bulkData[rowIdx][emailCol] || '');
+  tr.querySelector('.mm-name-cell').innerHTML = '<input class="mismatch-edit-input" data-field="name" value="' + escAttr(curName) + '">';
+  tr.querySelector('.mm-email-cell').innerHTML = '<input class="mismatch-edit-input" data-field="email" value="' + escAttr(curEmail) + '">';
+  const actionTd = tr.querySelector('td:last-child');
+  actionTd.innerHTML =
+    '<button class="mismatch-row-btn save" onclick="saveMismatchRow(' + rowIdx + ')">Save</button> ' +
+    '<button class="mismatch-row-btn" onclick="runBulkValidation()">Cancel</button>';
+  tr.querySelector('input[data-field="name"]').focus();
+}
+
+function saveMismatchRow(rowIdx) {
+  const nameCol = document.getElementById('bulkNameCol').value;
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  const tr = document.querySelector('.mismatch-row[data-idx="' + rowIdx + '"]');
+  if (!tr) return;
+  const nameInput = tr.querySelector('input[data-field="name"]');
+  const emailInput = tr.querySelector('input[data-field="email"]');
+  if (nameInput) bulkData[rowIdx][nameCol] = nameInput.value;
+  if (emailInput) bulkData[rowIdx][emailCol] = emailInput.value;
+  runBulkValidation();
+}
+
+function useExpectedEmail(rowIdx) {
+  if (!bulkValidation.rule || !bulkValidation.rule.predict) return;
+  const nameCol = document.getElementById('bulkNameCol').value;
+  const emailCol = document.getElementById('bulkEmailCol').value;
+  const predicted = bulkValidation.rule.predict(String(bulkData[rowIdx][nameCol] || ''));
+  if (!predicted) return;
+  bulkData[rowIdx][emailCol] = predicted;
+  runBulkValidation();
+}
+
+function acknowledgeWarnings() {
+  bulkValidation.acknowledged = true;
+  renderValidationResults();
+}
+
+/* ===== SAVE CORRECTED EXCEL ===== */
+function _buildCorrectedWorkbook() {
+  // bulkData is array of objects keyed by bulkColumns. Respect current header row.
+  const aoa = [bulkColumns.slice()];
+  for (const row of bulkData) {
+    aoa.push(bulkColumns.map(c => row[c] !== undefined ? row[c] : ''));
+  }
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Data');
+  return wb;
+}
+async function saveCorrectedExcel() {
+  if (!bulkData || !bulkData.length) { document.getElementById('bulkProgress').textContent = 'No data to save'; return; }
+  const wb = _buildCorrectedWorkbook();
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  const suggested = (bulkOriginalFileName || 'corrected_data.xlsx').replace(/\.(xlsx|xls|csv)$/i, '') + '_corrected.xlsx';
+  if (window.showSaveFilePicker) {
+    try {
+      const opts = { suggestedName: suggested, types: [{ description: 'Excel file', accept: { 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet': ['.xlsx'] } }] };
+      if (_lastDirHandle) opts.startIn = _lastDirHandle;
+      const handle = await window.showSaveFilePicker(opts);
+      _lastDirHandle = handle;
+      const writable = await handle.createWritable();
+      await writable.write(blob);
+      await writable.close();
+      document.getElementById('bulkProgress').textContent = 'Saved corrected Excel: ' + (handle.name || suggested);
+      return;
+    } catch (e) { if (e.name === 'AbortError') return; }
+  }
+  downloadCorrectedExcel();
+}
+function downloadCorrectedExcel() {
+  if (!bulkData || !bulkData.length) { document.getElementById('bulkProgress').textContent = 'No data to save'; return; }
+  const wb = _buildCorrectedWorkbook();
+  const suggested = (bulkOriginalFileName || 'corrected_data.xlsx').replace(/\.(xlsx|xls|csv)$/i, '') + '_corrected.xlsx';
+  XLSX.writeFile(wb, suggested);
+  document.getElementById('bulkProgress').textContent = 'Downloaded: ' + suggested;
+}
+
 /* ===== BULK EMAIL ===== */
 function openBulkEmail() {
   if (isDemo) { setStatus('Bulk email requires a full license.'); return; }
@@ -1159,6 +1478,7 @@ function closeBulkEmail() {
 
 function handleBulkFile(event) {
   const file = event.target.files[0]; if (!file) return;
+  bulkOriginalFileName = file.name;
   const reader = new FileReader();
   reader.onload = function (e) {
     try {
@@ -1226,6 +1546,7 @@ function renderBulkSettings() {
   document.getElementById('bulkTemplateSection').style.display = '';
   document.getElementById('btnSendAll').style.display = '';
   document.getElementById('btnReview').style.display = '';
+  runBulkValidation();
 }
 
 function renderBulkChips() {
@@ -1286,6 +1607,14 @@ async function sendBulkAll() {
   const emailCol = document.getElementById('bulkEmailCol').value;
   if (!emailCol) { document.getElementById('bulkProgress').textContent = 'Select the email column'; return; }
   if (!document.getElementById('bulkSubject').value || !document.getElementById('bulkBodyText').value) { document.getElementById('bulkProgress').textContent = 'Fill in subject and body template'; return; }
+  // Block on unacknowledged name<->email mismatches
+  if (bulkValidation.mismatches && bulkValidation.mismatches.length > 0 && !bulkValidation.acknowledged) {
+    const n = bulkValidation.mismatches.length;
+    const ok = confirm(n + ' row' + (n > 1 ? 's have' : ' has') + ' name/email mismatches.\n\nClick OK to send anyway, or Cancel to fix them first.');
+    if (!ok) { document.getElementById('bulkProgress').textContent = 'Send cancelled — fix mismatches or click "Acknowledge"'; return; }
+    bulkValidation.acknowledged = true;
+    renderValidationResults();
+  }
   const attachMode = document.querySelector('input[name=bulkMode]:checked')?.value === 'attach';
   const count = bulkData.length;
   const progressEl = document.getElementById('bulkProgress');
