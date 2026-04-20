@@ -533,7 +533,8 @@ input,textarea,select,button{font-family:inherit}
       <div class="step-title"><span class="step-num">1</span> Select Excel / CSV File</div>
       <div class="file-row">
         <div class="file-label" id="bulkFileLabel">No file selected</div>
-        <button class="btn btn-primary" onclick="document.getElementById('bulkFileInput').click()">Browse...</button>
+        <button class="btn btn-primary" onclick="(function(){var i=document.getElementById('bulkFileInput');i.value='';i.click();})()">Browse...</button>
+        <button class="btn btn-gray" id="bulkReloadBtn" onclick="reloadBulkFile()" style="display:none" title="Re-read the file from disk (use after editing in Excel)">&#8635; Reload</button>
         <input type="file" id="bulkFileInput" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBulkFile(event)">
       </div>
       <div id="bulkHeaderRowWrap" style="display:none;margin-bottom:8px">
@@ -776,6 +777,7 @@ let bulkExceptions = [];
 let bulkValidation = { rule: null, mismatches: [], acknowledged: false };
 let bulkOriginalFileHandle = null; // set if file was opened via showOpenFilePicker
 let bulkOriginalFileName = '';
+let bulkLastFile = null; // File object for Reload button
 let refreshTimer = null;
 let adminClicks = 0, adminTimer = null;
 let isDemo = false;
@@ -1316,6 +1318,41 @@ function runBulkValidation() {
         mismatches.push({ idx, name: p.name, email: p.email, predicted, reason: !domainOk ? 'domain differs' : 'pattern mismatch' });
       }
     });
+  } else {
+    // Fallback heuristics when no rule could be inferred.
+    const seen = new Set();
+    // Heuristic 1: same email appears on multiple rows with different names.
+    const emailGroups = {};
+    pairs.forEach((p, idx) => {
+      const em = p.email.toLowerCase().trim();
+      if (!em || !em.includes('@')) return;
+      (emailGroups[em] = emailGroups[em] || []).push({ idx, name: p.name.trim() });
+    });
+    for (const [em, entries] of Object.entries(emailGroups)) {
+      if (entries.length < 2) continue;
+      const distinctNames = new Set(entries.map(e => e.name.toLowerCase()).filter(Boolean));
+      if (distinctNames.size > 1) {
+        entries.forEach(e => {
+          if (seen.has(e.idx)) return;
+          seen.add(e.idx);
+          mismatches.push({ idx: e.idx, name: e.name, email: em, predicted: '', reason: 'duplicate email (' + entries.length + ' rows, different names)' });
+        });
+      }
+    }
+    // Heuristic 2: no name token appears in the email local part.
+    pairs.forEach((p, idx) => {
+      if (seen.has(idx)) return;
+      if (!p.email.trim() || !p.name.trim()) return;
+      const localLower = (p.email.split('@')[0] || '').toLowerCase();
+      if (!localLower) return;
+      const tokens = _nameParts(p.name).map(t => t.toLowerCase()).filter(t => t.length >= 2);
+      if (!tokens.length) return;
+      const anyTokenSub = tokens.some(t => localLower.includes(t));
+      if (!anyTokenSub) {
+        seen.add(idx);
+        mismatches.push({ idx, name: p.name, email: p.email, predicted: '', reason: 'name tokens not found in email' });
+      }
+    });
   }
   bulkValidation.mismatches = mismatches;
   renderValidationResults();
@@ -1331,12 +1368,24 @@ function renderValidationResults() {
   const rule = bulkValidation.rule;
 
   if (!rule || !rule.rule) {
-    panel.classList.remove('has-warn');
+    // No rule — but fallback heuristics may still have flagged suspicious rows.
+    if (mismatches.length === 0) {
+      panel.classList.remove('has-warn');
+      statusEl.className = 'validation-status validation-status-err';
+      statusEl.textContent = 'Cannot auto-check rows — rule not determined. Verify names/emails manually.';
+      listEl.innerHTML = '';
+      actionsEl.style.display = 'none';
+      ackNote.textContent = '';
+      return;
+    }
+    panel.classList.add('has-warn');
     statusEl.className = 'validation-status validation-status-err';
-    statusEl.textContent = 'Cannot auto-check rows — rule not determined. Verify names/emails manually.';
-    listEl.innerHTML = '';
-    actionsEl.style.display = 'none';
-    ackNote.textContent = '';
+    statusEl.textContent = '\u26A0 Rule unknown, but ' + mismatches.length + ' row' + (mismatches.length > 1 ? 's look' : ' looks') + ' suspicious (duplicate email or name not in address).';
+    listEl.innerHTML = _renderMismatchTable(mismatches, /*hideExpected*/ true);
+    actionsEl.style.display = '';
+    ackNote.textContent = bulkValidation.acknowledged
+      ? '\u2713 Warnings acknowledged — sending will proceed.'
+      : 'Edit rows or acknowledge before sending.';
     return;
   }
   if (mismatches.length === 0) {
@@ -1351,28 +1400,37 @@ function renderValidationResults() {
   panel.classList.add('has-warn');
   statusEl.className = 'validation-status validation-status-err';
   statusEl.textContent = '\u26A0 ' + mismatches.length + ' row' + (mismatches.length > 1 ? 's' : '') + ' do not match the rule. Review and edit below.';
-  let html = '<table class="mismatch-table"><thead><tr>' +
-    '<th style="width:40px">#</th><th>Name</th><th>Email (actual)</th><th>Expected</th><th style="width:130px">Action</th>' +
-    '</tr></thead><tbody>';
-  for (const m of mismatches) {
-    const rowNum = m.idx + 1;
-    html += '<tr class="mismatch-row" data-idx="' + m.idx + '">' +
-      '<td>' + rowNum + '</td>' +
-      '<td class="mm-name-cell">' + escHtml(m.name) + '</td>' +
-      '<td class="mismatch-cell mm-email-cell">' + escHtml(m.email || '(empty)') + '</td>' +
-      '<td class="mismatch-cell-expected">' + escHtml(m.predicted || '—') + '</td>' +
-      '<td>' +
-        '<button class="mismatch-row-btn" onclick="editMismatchRow(' + m.idx + ')">Edit</button> ' +
-        '<button class="mismatch-row-btn save" onclick="useExpectedEmail(' + m.idx + ')" title="Replace email with expected">Use expected</button>' +
-      '</td>' +
-      '</tr>';
-  }
-  html += '</tbody></table>';
-  listEl.innerHTML = html;
+  listEl.innerHTML = _renderMismatchTable(mismatches, /*hideExpected*/ false);
   actionsEl.style.display = '';
   ackNote.textContent = bulkValidation.acknowledged
     ? '\u2713 Warnings acknowledged — sending will proceed with mismatches as-is.'
     : 'Edit rows, save, or acknowledge before sending.';
+}
+
+function _renderMismatchTable(mismatches, hideExpected) {
+  let html = '<table class="mismatch-table"><thead><tr>' +
+    '<th style="width:40px">#</th><th>Name</th><th>Email (actual)</th>' +
+    (hideExpected ? '<th>Reason</th>' : '<th>Expected</th>') +
+    '<th style="width:130px">Action</th></tr></thead><tbody>';
+  for (const m of mismatches) {
+    const rowNum = m.idx + 1;
+    const thirdCol = hideExpected
+      ? '<td class="mismatch-cell-expected">' + escHtml(m.reason || '—') + '</td>'
+      : '<td class="mismatch-cell-expected">' + escHtml(m.predicted || '—') + '</td>';
+    const actions = hideExpected
+      ? '<button class="mismatch-row-btn" onclick="editMismatchRow(' + m.idx + ')">Edit</button>'
+      : '<button class="mismatch-row-btn" onclick="editMismatchRow(' + m.idx + ')">Edit</button> ' +
+        '<button class="mismatch-row-btn save" onclick="useExpectedEmail(' + m.idx + ')" title="Replace email with expected">Use expected</button>';
+    html += '<tr class="mismatch-row" data-idx="' + m.idx + '">' +
+      '<td>' + rowNum + '</td>' +
+      '<td class="mm-name-cell">' + escHtml(m.name) + '</td>' +
+      '<td class="mismatch-cell mm-email-cell">' + escHtml(m.email || '(empty)') + '</td>' +
+      thirdCol +
+      '<td>' + actions + '</td>' +
+      '</tr>';
+  }
+  html += '</tbody></table>';
+  return html;
 }
 
 function editMismatchRow(rowIdx) {
@@ -1478,6 +1536,17 @@ function closeBulkEmail() {
 
 function handleBulkFile(event) {
   const file = event.target.files[0]; if (!file) return;
+  bulkLastFile = file;
+  _readBulkFile(file);
+}
+
+function reloadBulkFile() {
+  if (!bulkLastFile) { document.getElementById('bulkProgress').textContent = 'No file to reload — Browse first'; return; }
+  document.getElementById('bulkProgress').textContent = 'Reloading ' + bulkLastFile.name + '...';
+  _readBulkFile(bulkLastFile);
+}
+
+function _readBulkFile(file) {
   bulkOriginalFileName = file.name;
   const reader = new FileReader();
   reader.onload = function (e) {
@@ -1490,6 +1559,8 @@ function handleBulkFile(event) {
       const label = document.getElementById('bulkFileLabel');
       label.textContent = file.name + ' (' + bulkData.length + ' rows, ' + bulkColumns.length + ' columns)';
       label.classList.add('file-loaded');
+      document.getElementById('bulkReloadBtn').style.display = '';
+      document.getElementById('bulkProgress').textContent = 'Loaded ' + bulkData.length + ' rows from ' + file.name;
       renderBulkSettings();
     } catch (err) { document.getElementById('bulkProgress').textContent = 'Error: ' + err.message; }
   };
